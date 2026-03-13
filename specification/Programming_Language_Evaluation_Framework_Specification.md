@@ -46,7 +46,7 @@ The evaluation framework follows a layered architecture pattern, separating conc
 | Layer | Components & Technologies |
 |-------|---------------------------|
 | **Presentation** | Next.js 16 + TypeScript + Tailwind CSS + shadcn/ui Dashboard |
-| **API Layer** | Next.js API Routes, Socket.io WebSocket for real-time updates |
+| **API Layer** | NestJS with TypeScript, @nestjs/platform-socket.io WebSocket for real-time updates |
 | **Job Queue** | Redis + BullMQ for async job processing, retry logic, and progress tracking |
 | **Worker Layer** | Node.js workers using Docker Engine SDK for container orchestration |
 | **Data Layer** | PostgreSQL (Prisma ORM), Redis (caching/pub-sub), S3/MinIO (artifacts) |
@@ -74,9 +74,10 @@ The technology choices are driven by the unique requirements of executing untrus
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                      API LAYER                               │
-│  Next.js API Routes / or separate Express/Fastify service   │
-│  - Submission endpoints                                      │
-│  - Real-time status via WebSockets (Socket.io)              │
+│  NestJS with TypeScript                                     │
+│  - RESTful endpoints (Controllers)                          │
+│  - Real-time status via WebSocket Gateways                  │
+│  - Dependency injection, modules, guards, pipes             │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -794,16 +795,18 @@ The implementation should follow an incremental approach, starting with a minima
          ┌─────────────────┼─────────────────┐
          │                 │                 │
    ┌─────▼─────┐    ┌─────▼─────┐    ┌─────▼─────┐
-   │  Next.js  │    │  Worker   │    │  Redis    │
-   │  (Web)    │    │  Node 1   │    │  Cluster  │
+   │  Next.js  │    │  NestJS   │    │  Worker   │
+   │  (Web)    │    │   (API)   │    │  Node 1   │
    └───────────┘    └───────────┘    └───────────┘
          │                 │                 │
          └─────────────────┼─────────────────┘
                            │
-                    ┌──────▼──────┐
-                    │ PostgreSQL  │
-                    │  (Primary)  │
-                    └─────────────┘
+         ┌─────────────────┼─────────────────┐
+         │                 │                 │
+   ┌─────▼─────┐    ┌─────▼─────┐    ┌─────▼─────┐
+   │  Redis    │    │ PostgreSQL│    │  MinIO    │
+   │  Cluster  │    │  Primary  │    │   (S3)    │
+   └───────────┘    └───────────┘    └───────────┘
 ```
 
 ### 10.4 Monitoring and Observability

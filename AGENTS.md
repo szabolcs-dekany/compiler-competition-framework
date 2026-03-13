@@ -11,7 +11,7 @@ A competitive programming contest framework where teams submit custom compilers 
 | Layer | Technology |
 |-------|------------|
 | Frontend | Next.js 16 + TypeScript + Tailwind CSS + shadcn/ui |
-| API | Next.js API Routes, Socket.io for WebSockets |
+| API | NestJS with TypeScript, @nestjs/platform-socket.io for WebSockets |
 | Job Queue | Redis + BullMQ |
 | Workers | Node.js with Docker Engine SDK |
 | Database | PostgreSQL with Prisma ORM |
@@ -48,21 +48,45 @@ npm run test:e2e         # Run end-to-end tests
 
 ## Project Structure
 
+This is a monorepo with separate frontend and API applications.
+
 ```
 /
-├── src/
-│   ├── app/                 # Next.js App Router pages
-│   ├── components/          # React components (shadcn/ui)
-│   │   └── ui/              # Base UI components
-│   ├── lib/                 # Shared utilities and helpers
-│   ├── services/            # Business logic services
-│   ├── workers/             # BullMQ job processors
-│   └── types/               # TypeScript type definitions
-├── prisma/
-│   └── schema.prisma        # Database schema
-├── specification/           # Project specification documents
-├── public/                  # Static assets
-└── scripts/                 # Utility scripts (Docker entrypoints, etc.)
+├── apps/
+│   ├── web/                     # Next.js frontend
+│   │   ├── src/
+│   │   │   ├── app/             # Next.js App Router pages
+│   │   │   ├── components/      # React components (shadcn/ui)
+│   │   │   │   └── ui/          # Base UI components
+│   │   │   ├── lib/             # Frontend utilities
+│   │   │   └── hooks/           # React hooks
+│   │   └── public/              # Static assets
+│   └── api/                     # NestJS API
+│       ├── src/
+│       │   ├── modules/         # Feature modules
+│       │   │   ├── teams/
+│       │   │   ├── submissions/
+│       │   │   ├── test-cases/
+│       │   │   ├── leaderboard/
+│       │   │   └── websocket/
+│       │   ├── common/          # Shared utilities
+│       │   │   ├── decorators/
+│       │   │   ├── filters/
+│       │   │   ├── guards/
+│       │   │   ├── interceptors/
+│       │   │   └── pipes/
+│       │   ├── config/          # Configuration
+│       │   └── workers/         # BullMQ job processors
+│       └── test/                # API tests
+├── packages/
+│   └── shared/                  # Shared types and utilities
+│       ├── src/
+│       │   ├── types/           # TypeScript type definitions
+│       │   └── utils/           # Shared utilities
+│       └── prisma/
+│           └── schema.prisma    # Database schema
+├── scripts/                     # Utility scripts (Docker entrypoints, etc.)
+└── specification/               # Project specification documents
 ```
 
 ## Code Style Guidelines
@@ -76,17 +100,22 @@ Order imports as follows, separated by blank lines:
 import { readFile } from 'fs/promises';
 
 // 2. External packages
+import { Controller, Get, Post } from '@nestjs/common';
 import { Container } from 'dockerode';
 import { Job } from 'bullmq';
-import { prisma } from '@/lib/prisma';
 
-// 3. Internal modules (use @/ alias for src/)
-import { evaluateTest } from '@/services/evaluator';
-import { Button } from '@/components/ui/button';
+// 3. Internal modules (use @/ alias for app-specific)
+import { PrismaService } from '@/prisma/prisma.service';
+import { SubmissionsService } from './submissions.service';
+
+// 4. Shared package (use @shared/ alias)
+import { Submission, TestCase } from '@shared/types';
+import { calculateScore } from '@shared/utils/scoring';
 ```
 
 Use path aliases configured in `tsconfig.json`:
-- `@/*` maps to `./src/*`
+- `@/*` maps to `./src/*` (within each app)
+- `@shared/*` maps to `./packages/shared/src/*`
 
 ### Formatting
 
@@ -127,6 +156,7 @@ const processData = (data: any) => { ... }
 | Files (components) | PascalCase | `TestRunner.tsx` |
 | Files (utilities) | camelCase | `dockerClient.ts` |
 | Files (pages) | kebab-case | `test-runs/page.tsx` |
+| Files (NestJS modules) | dot-separated | `teams.module.ts`, `teams.service.ts` |
 | React components | PascalCase | `SubmissionCard` |
 | Functions | camelCase | `evaluateTestRun` |
 | Constants | SCREAMING_SNAKE | `MAX_TIMEOUT_MS` |
@@ -185,7 +215,7 @@ export function SubmissionStatus({ submissionId, status }: SubmissionStatusProps
 - Include only needed fields in select
 
 ```typescript
-const submission = await prisma.submission.findUnique({
+const submission = await this.prisma.submission.findUnique({
   where: { id: submissionId },
   select: {
     id: true,
