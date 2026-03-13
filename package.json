@@ -1,0 +1,9 @@
+{
+  "name": "prog-language-evaluator",
+  "private": true,
+  "workspaces": [
+    "evaluator-api",
+    "evaluator-ui",
+    "shared"
+  ]
+}
