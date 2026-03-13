@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Team {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  createdAt   DateTime     @default(now())
+  submissions Submission[]
+}
+
+model Submission {
+  id           String           @id @default(cuid())
+  teamId       String
+  team         Team             @relation(fields: [teamId], references: [id])
+  version      Int              @default(1)
+  compilerPath String
+  status       SubmissionStatus @default(PENDING)
+  submittedAt  DateTime         @default(now())
+  testRuns     TestRun[]
+  totalScore   Int              @default(0)
+}
+
+model TestCase {
+  id          String     @id
+  category    String
+  name        String
+  description String
+  inputPath   String
+  outputPath  String
+  timeoutMs   Int
+  points      Int
+  testRuns    TestRun[]
+}
+
+model TestRun {
+  id            String          @id @default(cuid())
+  submissionId  String
+  submission    Submission      @relation(fields: [submissionId], references: [id])
+  testCaseId    String
+  testCase      TestCase        @relation(fields: [testCaseId], references: [id])
+  status        TestRunStatus   @default(PENDING)
+  output        String?
+  score         Int             @default(0)
+  executionTime Int?
+  memoryUsage   Int?
+  errorMessage  String?
+  createdAt     DateTime        @default(now())
+  completedAt   DateTime?
+}
+
+enum SubmissionStatus {
+  PENDING
+  BUILDING
+  READY
+  FAILED
+}
+
+enum TestRunStatus {
+  PENDING
+  RUNNING
+  PASSED
+  FAILED
+  TIMEOUT
+  ERROR
+}

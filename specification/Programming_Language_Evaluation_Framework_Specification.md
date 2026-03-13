@@ -360,7 +360,6 @@ The database schema follows a hierarchical model centered around teams, their su
 model Team {
   id          String   @id @default(cuid())
   name        String   @unique
-  email       String   @unique
   createdAt   DateTime @default(now())
   submissions Submission[]
 }
@@ -463,7 +462,6 @@ CREATE INDEX idx_testrun_status ON TestRun(status);
 
 -- Team lookups
 CREATE UNIQUE INDEX idx_team_name ON Team(name);
-CREATE UNIQUE INDEX idx_team_email ON Team(email);
 ```
 
 ---
