@@ -145,7 +145,9 @@ export class SubmissionsService {
     });
 
     if (!submission) {
-      throw new NotFoundException(`Submission with id ${submissionId} not found`);
+      throw new NotFoundException(
+        `Submission with id ${submissionId} not found`,
+      );
     }
 
     const allTestCases = this.testCasesService.findAll();

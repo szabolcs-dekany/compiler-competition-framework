@@ -30,25 +30,47 @@ services:
       timeout: 5s
       retries: 5
 
-  minio:
-    image: minio/minio:latest
-    container_name: evaluator-minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+  garage:
+    image: dxflrs/garage:v2.2.0
+    container_name: evaluator-garage
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '9000:3900'
+      - '3903:3903'
     volumes:
-      - minio_data:/data
+      - ./docker/garage.toml:/etc/garage.toml:ro
+      - garage_data:/var/lib/garage
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
-      interval: 30s
-      timeout: 20s
-      retries: 3
+      test: ['CMD', '/garage', '-c', '/etc/garage.toml', 'status']
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  garage-init:
+    image: alpine:3.19
+    container_name: evaluator-garage-init
+    depends_on:
+      garage:
+        condition: service_healthy
+    volumes:
+      - ./docker/garage-init.sh:/garage-init.sh:ro
+    entrypoint: ['/bin/sh', '/garage-init.sh']
+    restart: 'no'
+
+  garage-webui:
+    image: khairul169/garage-webui:latest
+    container_name: evaluator-garage-webui
+    depends_on:
+      garage:
+        condition: service_healthy
+    volumes:
+      - ./docker/garage.toml:/etc/garage.toml:ro
+    ports:
+      - '3909:3909'
+    environment:
+      API_BASE_URL: 'http://garage:3903'
+      S3_ENDPOINT_URL: 'http://garage:3900'
 
 volumes:
   postgres_data:
   redis_data:
-  minio_data:
+  garage_data:

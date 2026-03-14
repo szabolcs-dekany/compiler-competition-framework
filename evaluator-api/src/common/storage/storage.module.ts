@@ -1,11 +1,10 @@
 import { Global, Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { S3Module } from '../s3/s3.module';
 import { StorageService } from './storage.service';
-import { storageConfig } from './storage.config';
 
 @Global()
 @Module({
-  imports: [ConfigModule.forFeature(storageConfig)],
+  imports: [S3Module],
   providers: [StorageService],
   exports: [StorageService],
 })
