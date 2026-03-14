@@ -2,11 +2,14 @@ export enum SubmissionStatus {
   PENDING = 'PENDING',
   BUILDING = 'BUILDING',
   READY = 'READY',
+  EVALUATING = 'EVALUATING',
+  COMPLETED = 'COMPLETED',
   FAILED = 'FAILED',
 }
 
 export enum TestRunStatus {
   PENDING = 'PENDING',
+  COMPILING = 'COMPILING',
   RUNNING = 'RUNNING',
   PASSED = 'PASSED',
   FAILED = 'FAILED',

@@ -18,7 +18,7 @@ model Submission {
   teamId       String
   team         Team             @relation(fields: [teamId], references: [id])
   version      Int              @default(1)
-  compilerPath String
+  compilerPath String?
   status       SubmissionStatus @default(PENDING)
   submittedAt  DateTime         @default(now())
   testRuns     TestRun[]

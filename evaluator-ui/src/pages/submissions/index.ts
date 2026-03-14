@@ -1,0 +1,1 @@
+export { SubmissionsPage } from './page';

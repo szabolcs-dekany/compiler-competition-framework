@@ -13,19 +13,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/teams': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
-      '/test-cases': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
-      '/submissions': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
-      '/leaderboard': {
+      '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
       },
