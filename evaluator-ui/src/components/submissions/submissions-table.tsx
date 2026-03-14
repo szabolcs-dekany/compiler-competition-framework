@@ -40,45 +40,41 @@ const testRunStatusColors: Record<TestRunStatus, string> = {
   [TestRunStatus.ERROR]: 'bg-red-600',
 };
 
-function TestRunsRow({ submissionId }: { submissionId: string }) {
+function TestRunsContent({ submissionId }: { submissionId: string }) {
   const { data: testRuns, isLoading } = useQuery(submissionQueries.testRuns(submissionId));
 
   if (isLoading) {
     return (
-      <TableRow>
-        <TableCell colSpan={5} className="text-center py-4">
-          <Loader2 className="inline w-4 h-4 animate-spin mr-2" />
-          Loading test runs...
-        </TableCell>
-      </TableRow>
+      <div className="flex items-center justify-center py-4 text-muted-foreground">
+        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+        Loading test runs...
+      </div>
     );
   }
 
   if (!testRuns || testRuns.length === 0) {
     return (
-      <TableRow>
-        <TableCell colSpan={5} className="text-center py-4 text-muted-foreground">
-          No test runs yet
-        </TableCell>
-      </TableRow>
+      <div className="text-center py-4 text-muted-foreground">No test runs yet</div>
     );
   }
 
   return (
-    <>
-      <TableRow className="bg-muted/50">
-        <TableCell className="font-medium text-xs text-muted-foreground">Test Case</TableCell>
-        <TableCell className="font-medium text-xs text-muted-foreground">Category</TableCell>
-        <TableCell className="font-medium text-xs text-muted-foreground">Status</TableCell>
-        <TableCell className="font-medium text-xs text-muted-foreground">
-          Points (earned / max)
-        </TableCell>
-        <TableCell className="font-medium text-xs text-muted-foreground">Time</TableCell>
-      </TableRow>
-      {testRuns.map((tr) => (
-        <TestRunDetailRow key={tr.id} testRun={tr} />
-      ))}
-    </>
+    <Table>
+      <TableHeader>
+        <TableRow className="border-0 hover:bg-transparent">
+          <TableHead className="text-xs text-muted-foreground h-8">Test Case</TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">Category</TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">Status</TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">Points</TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">Time</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {testRuns.map((tr) => (
+          <TestRunDetailRow key={tr.id} testRun={tr} />
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -86,29 +82,28 @@ function TestRunDetailRow({ testRun }: { testRun: TestRunWithDetailsDto }) {
   const totalEarned = testRun.pointsEarned + testRun.bonusEarned;
 
   return (
-    <TableRow className="bg-muted/30">
-      <TableCell className="pl-8">{testRun.testCase.name}</TableCell>
-      <TableCell>
+    <TableRow className="border-0 hover:bg-muted/30">
+      <TableCell className="py-2 pl-4">{testRun.testCase.name}</TableCell>
+      <TableCell className="py-2">
         <Badge variant="outline" className="text-xs">
           {testRun.testCase.category}
         </Badge>
       </TableCell>
-      <TableCell>
+      <TableCell className="py-2">
         <Badge className={cn('text-xs', testRunStatusColors[testRun.status])}>
           {testRun.status}
         </Badge>
       </TableCell>
-      <TableCell>
-        <span className={cn(totalEarned > 0 ? 'text-green-600' : 'text-muted-foreground')}>
+      <TableCell className="py-2">
+        <span className={cn(totalEarned > 0 ? 'text-green-600 font-medium' : 'text-muted-foreground')}>
           {totalEarned}
         </span>
-        {' / '}
-        <span className="text-muted-foreground">{testRun.testCase.points}</span>
+        <span className="text-muted-foreground"> / {testRun.testCase.points}</span>
         {testRun.bonusEarned > 0 && (
-          <span className="text-xs text-green-500 ml-1">(+{testRun.bonusEarned} bonus)</span>
+          <span className="text-xs text-green-500 ml-1">(+{testRun.bonusEarned})</span>
         )}
       </TableCell>
-      <TableCell className="text-muted-foreground text-sm">
+      <TableCell className="py-2 text-muted-foreground text-sm">
         {testRun.runTimeMs ? `${testRun.runTimeMs}ms` : '-'}
       </TableCell>
     </TableRow>
@@ -142,7 +137,7 @@ export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className="w-8"></TableHead>
+          <TableHead className="w-10"></TableHead>
           <TableHead>Team</TableHead>
           <TableHead>Version</TableHead>
           <TableHead>Status</TableHead>
@@ -158,7 +153,7 @@ export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
               className="cursor-pointer hover:bg-muted/50"
               onClick={() => toggleRow(submission.id)}
             >
-              <TableCell className="w-8">
+              <TableCell className="w-10">
                 <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
                   {expandedRows.has(submission.id) ? (
                     <ChevronDown className="h-4 w-4" />
@@ -180,7 +175,13 @@ export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
               </TableCell>
             </TableRow>
             {expandedRows.has(submission.id) && (
-              <TestRunsRow submissionId={submission.id} />
+              <TableRow key={`${submission.id}-expanded`}>
+                <TableCell colSpan={6} className="p-0 border-0">
+                  <div className="pl-10 pr-4">
+                    <TestRunsContent submissionId={submission.id} />
+                  </div>
+                </TableCell>
+              </TableRow>
             )}
           </>
         ))}
