@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/react-query';
-import { teamsApi, testCasesApi, submissionsApi } from './api-client';
+import { teamsApi, testCasesApi, submissionsApi, sourceFilesApi } from './api-client';
 
 export const teamQueries = {
   list: () =>
@@ -52,5 +52,25 @@ export const submissionQueries = {
     queryOptions({
       queryKey: ['submissions', submissionId, 'test-runs'],
       queryFn: () => submissionsApi.testRuns(submissionId),
+    }),
+};
+
+export const sourceFileQueries = {
+  list: (teamId: string) =>
+    queryOptions({
+      queryKey: ['source-files', 'team', teamId],
+      queryFn: () => sourceFilesApi.list(teamId),
+    }),
+  
+  detail: (id: string) =>
+    queryOptions({
+      queryKey: ['source-files', id],
+      queryFn: () => sourceFilesApi.get(id),
+    }),
+  
+  versions: (id: string) =>
+    queryOptions({
+      queryKey: ['source-files', id, 'versions'],
+      queryFn: () => sourceFilesApi.getVersions(id),
     }),
 };

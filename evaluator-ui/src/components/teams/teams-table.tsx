@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { formatDistanceToNow } from 'date-fns';
+import { Link } from '@tanstack/react-router';
 
 interface TeamsTableProps {
   teams: TeamDto[];
@@ -73,7 +74,15 @@ export function TeamsTable({ teams }: TeamsTableProps) {
         <TableBody>
           {teams.map((team) => (
             <TableRow key={team.id}>
-              <TableCell className="font-medium">{team.name}</TableCell>
+              <TableCell className="font-medium">
+                <Link
+                  to="/teams/$teamId"
+                  params={{ teamId: team.id }}
+                  className="hover:underline"
+                >
+                  {team.name}
+                </Link>
+              </TableCell>
               <TableCell className="text-muted-foreground">
                 {formatDistanceToNow(new Date(team.createdAt), { addSuffix: true })}
               </TableCell>

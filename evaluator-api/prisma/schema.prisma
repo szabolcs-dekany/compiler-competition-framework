@@ -7,10 +7,43 @@ datasource db {
 }
 
 model Team {
-  id          String       @id @default(cuid())
-  name        String       @unique
-  createdAt   DateTime     @default(now())
-  submissions Submission[]
+  id           String        @id @default(cuid())
+  name         String        @unique
+  createdAt    DateTime      @default(now())
+  submissions  Submission[]
+  sourceFiles  SourceFile[]
+}
+
+model SourceFile {
+  id            String              @id @default(cuid())
+  teamId        String
+  team          Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  testCaseId    String
+  originalName  String
+  extension     String
+  s3Key         String
+  size          Int
+  checksum      String
+  version       Int                 @default(1)
+  uploadedAt    DateTime            @default(now())
+  versions      SourceFileVersion[]
+
+  @@unique([teamId, testCaseId])
+  @@index([teamId])
+}
+
+model SourceFileVersion {
+  id           String      @id @default(cuid())
+  sourceFileId String
+  sourceFile   SourceFile  @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
+  version      Int
+  s3Key        String
+  size         Int
+  checksum     String
+  uploadedAt   DateTime    @default(now())
+
+  @@unique([sourceFileId, version])
+  @@index([sourceFileId])
 }
 
 model Submission {

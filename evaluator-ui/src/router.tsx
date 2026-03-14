@@ -1,11 +1,10 @@
 import { createRouter, createRootRouteWithContext, createRoute, Outlet } from '@tanstack/react-router';
 import type { QueryClient } from '@tanstack/react-query';
 import { queryClient } from './lib/query-client';
-import { teamQueries } from './lib/queries';
-import { testCaseQueries } from './lib/queries';
-import { submissionQueries } from './lib/queries';
+import { teamQueries, testCaseQueries, submissionQueries, sourceFileQueries } from './lib/queries';
 import { Layout } from './components/layout';
 import { TeamsPage } from './pages/teams';
+import { TeamDetailPage } from './pages/teams/[teamId]';
 import { TestCasesPage } from './pages/test-cases';
 import { SubmissionsPage } from './pages/submissions';
 
@@ -36,6 +35,17 @@ const teamsRoute = createRoute({
   },
 });
 
+const teamDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/teams/$teamId',
+  component: TeamDetailPage,
+  loader: ({ context, params }) => {
+    context.queryClient.ensureQueryData(teamQueries.detail(params.teamId));
+    context.queryClient.ensureQueryData(sourceFileQueries.list(params.teamId));
+    context.queryClient.ensureQueryData(testCaseQueries.list());
+  },
+});
+
 const testCasesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/test-cases',
@@ -54,7 +64,7 @@ const submissionsRoute = createRoute({
   },
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, teamsRoute, testCasesRoute, submissionsRoute]);
+const routeTree = rootRoute.addChildren([indexRoute, teamsRoute, teamDetailRoute, testCasesRoute, submissionsRoute]);
 
 export const router = createRouter({
   routeTree,

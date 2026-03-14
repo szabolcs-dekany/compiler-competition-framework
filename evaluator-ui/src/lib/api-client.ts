@@ -1,4 +1,4 @@
-import type { TeamDto, CreateTeamDto, TestCaseBlueprint, SubmissionDto, CreateSubmissionDto, TestRunWithDetailsDto } from '@evaluator/shared';
+import type { TeamDto, CreateTeamDto, TestCaseBlueprint, SubmissionDto, CreateSubmissionDto, TestRunWithDetailsDto, SourceFileDto, SourceFileListDto, UploadSourceFileDto, SourceFileVersionDto } from '@evaluator/shared';
 
 const API_BASE = '/api';
 
@@ -58,6 +58,40 @@ export const submissionsApi = {
     
     return fetchJson<SubmissionDto>(`${API_BASE}/submissions`, {
       method: 'POST',
+      headers: {},
+      body: formData,
+    });
+  },
+};
+
+export const sourceFilesApi = {
+  list: (teamId: string) => fetchJson<SourceFileListDto>(`${API_BASE}/source-files?teamId=${teamId}`),
+  
+  get: (id: string) => fetchJson<SourceFileDto>(`${API_BASE}/source-files/${id}`),
+  
+  getVersions: (id: string) => fetchJson<SourceFileVersionDto[]>(`${API_BASE}/source-files/${id}/versions`),
+  
+  download: (id: string) => fetch(`${API_BASE}/source-files/${id}/download`).then((r) => r.blob()),
+  
+  downloadVersion: (id: string, version: number) => fetch(`${API_BASE}/source-files/${id}/versions/${version}/download`).then((r) => r.blob()),
+  
+  upload: (data: UploadSourceFileDto, file: File) => {
+    const formData = new FormData();
+    formData.append('teamId', data.teamId);
+    formData.append('testCaseId', data.testCaseId);
+    formData.append('file', file);
+    return fetchJson<SourceFileDto>(`${API_BASE}/source-files`, {
+      method: 'POST',
+      headers: {},
+      body: formData,
+    });
+  },
+  
+  replace: (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return fetchJson<SourceFileDto>(`${API_BASE}/source-files/${id}`, {
+      method: 'PUT',
       headers: {},
       body: formData,
     });
