@@ -18,6 +18,7 @@ import {
   ApiConsumes,
   ApiBody,
 } from '@nestjs/swagger';
+import type { TestRunWithDetailsDto } from '@evaluator/shared';
 import { SubmissionsService } from './submissions.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
@@ -84,6 +85,18 @@ export class SubmissionsController {
   })
   findByTeam(@Param('teamId') teamId: string): Promise<Submission[]> {
     return this.submissionsService.findByTeam(teamId);
+  }
+
+  @Get(':id/test-runs')
+  @ApiOperation({ summary: 'Get test runs for a submission' })
+  @ApiParam({ name: 'id', description: 'Submission ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of test runs with test case details',
+  })
+  @ApiResponse({ status: 404, description: 'Submission not found' })
+  findTestRuns(@Param('id') id: string): Promise<TestRunWithDetailsDto[]> {
+    return this.submissionsService.findTestRuns(id);
   }
 
   @Get(':id')

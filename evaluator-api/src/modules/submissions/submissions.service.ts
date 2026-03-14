@@ -1,14 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { StorageService } from '../../common/storage/storage.service';
+import { TestCasesService } from '../test-cases/test-cases.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
+import type { TestRunWithDetailsDto } from '@evaluator/shared';
+import { TestRunStatus } from '@evaluator/shared';
 
 @Injectable()
 export class SubmissionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly testCasesService: TestCasesService,
   ) {}
 
   async create(
@@ -133,5 +137,83 @@ export class SubmissionsService {
       ...submission,
       teamName: submission.team.name,
     };
+  }
+
+  async findTestRuns(submissionId: string): Promise<TestRunWithDetailsDto[]> {
+    const submission = await this.prisma.submission.findUnique({
+      where: { id: submissionId },
+    });
+
+    if (!submission) {
+      throw new NotFoundException(`Submission with id ${submissionId} not found`);
+    }
+
+    const allTestCases = this.testCasesService.findAll();
+
+    const testRuns = await this.prisma.testRun.findMany({
+      where: { submissionId },
+    });
+
+    const testRunMap = new Map(testRuns.map((tr) => [tr.testCaseId, tr]));
+
+    return allTestCases.map((tc) => {
+      const existingRun = testRunMap.get(tc.id);
+
+      if (existingRun) {
+        return {
+          id: existingRun.id,
+          submissionId: existingRun.submissionId,
+          testCaseId: existingRun.testCaseId,
+          status: existingRun.status as TestRunStatus,
+          compileSuccess: existingRun.compileSuccess,
+          compileTimeMs: existingRun.compileTimeMs,
+          runSuccess: existingRun.runSuccess,
+          runTimeMs: existingRun.runTimeMs,
+          actualStdout: existingRun.actualStdout,
+          actualStderr: existingRun.actualStderr,
+          expectedStdout: existingRun.expectedStdout,
+          expectedExitCode: existingRun.expectedExitCode,
+          actualExitCode: existingRun.actualExitCode,
+          pointsEarned: existingRun.pointsEarned,
+          bonusEarned: existingRun.bonusEarned,
+          errorMessage: existingRun.errorMessage,
+          createdAt: existingRun.createdAt.toISOString(),
+          completedAt: existingRun.completedAt?.toISOString() ?? null,
+          testCase: {
+            id: tc.id,
+            name: tc.name,
+            category: tc.category,
+            points: tc.points,
+          },
+        };
+      }
+
+      return {
+        id: `pending-${tc.id}`,
+        submissionId,
+        testCaseId: tc.id,
+        status: TestRunStatus.PENDING,
+        compileSuccess: null,
+        compileTimeMs: null,
+        runSuccess: null,
+        runTimeMs: null,
+        actualStdout: null,
+        actualStderr: null,
+        expectedStdout: null,
+        expectedExitCode: null,
+        actualExitCode: null,
+        pointsEarned: 0,
+        bonusEarned: 0,
+        errorMessage: null,
+        createdAt: new Date().toISOString(),
+        completedAt: null,
+        testCase: {
+          id: tc.id,
+          name: tc.name,
+          category: tc.category,
+          points: tc.points,
+        },
+      };
+    });
   }
 }

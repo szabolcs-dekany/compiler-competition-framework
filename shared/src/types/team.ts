@@ -1,4 +1,4 @@
-import type { SubmissionDto } from './submission';
+import type { SubmissionDto } from './submission.js';
 
 export interface TeamDto {
   id: string;

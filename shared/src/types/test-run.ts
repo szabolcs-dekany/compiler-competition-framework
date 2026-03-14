@@ -1,4 +1,4 @@
-import { TestRunStatus } from './enums';
+import { TestRunStatus } from './enums.js';
 
 export interface TestRunDto {
   id: string;

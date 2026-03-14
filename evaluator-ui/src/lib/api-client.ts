@@ -1,4 +1,4 @@
-import type { TeamDto, CreateTeamDto, TestCaseBlueprint, SubmissionDto, CreateSubmissionDto } from '@evaluator/shared';
+import type { TeamDto, CreateTeamDto, TestCaseBlueprint, SubmissionDto, CreateSubmissionDto, TestRunWithDetailsDto } from '@evaluator/shared';
 
 const API_BASE = '/api';
 
@@ -48,6 +48,8 @@ export const submissionsApi = {
   get: (id: string) => fetchJson<SubmissionDto>(`${API_BASE}/submissions/${id}`),
   
   listByTeam: (teamId: string) => fetchJson<SubmissionDto[]>(`${API_BASE}/submissions/team/${teamId}`),
+  
+  testRuns: (submissionId: string) => fetchJson<TestRunWithDetailsDto[]>(`${API_BASE}/submissions/${submissionId}/test-runs`),
   
   create: (data: CreateSubmissionDto, file: File) => {
     const formData = new FormData();

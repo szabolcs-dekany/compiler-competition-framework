@@ -1,5 +1,5 @@
-import { SubmissionStatus } from './enums';
-import type { TestRunDto } from './test-run';
+import { SubmissionStatus } from './enums.js';
+import type { TestRunDto } from './test-run.js';
 
 export interface SubmissionDto {
   id: string;

@@ -47,4 +47,10 @@ export const submissionQueries = {
       queryKey: ['submissions', 'team', teamId],
       queryFn: () => submissionsApi.listByTeam(teamId),
     }),
+  
+  testRuns: (submissionId: string) =>
+    queryOptions({
+      queryKey: ['submissions', submissionId, 'test-runs'],
+      queryFn: () => submissionsApi.testRuns(submissionId),
+    }),
 };
