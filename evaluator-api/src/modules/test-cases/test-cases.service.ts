@@ -1,19 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import * as path from 'path';
-import { YamlLoader } from '../../common/yaml-loader';
-import { TestCase, TestCaseBlueprint } from './interfaces/test-case.interface';
+import { TestCaseLoaderService, TestCase } from '../../common/test-case-loader/test-case-loader.service';
+
+export type TestCaseBlueprint = Omit<
+  TestCase,
+  'expected_stdout' | 'expected_exit_code'
+>;
 
 @Injectable()
 export class TestCasesService {
-  private readonly loader: YamlLoader<TestCase>;
-
-  constructor() {
-    const testCasesDir = path.join(__dirname, '../../../../test-cases');
-    this.loader = new YamlLoader<TestCase>(testCasesDir);
-  }
+  constructor(private readonly testCaseLoader: TestCaseLoaderService) {}
 
   findAll(): TestCaseBlueprint[] {
-    const testCases = this.loader.getAll();
+    const testCases = this.testCaseLoader.getAll();
 
     return testCases
       .map((tc) => ({
@@ -34,7 +32,7 @@ export class TestCasesService {
   }
 
   findOne(id: string): TestCaseBlueprint {
-    const testCase = this.loader.get(id);
+    const testCase = this.testCaseLoader.get(id);
 
     if (!testCase) {
       throw new NotFoundException(`Test case with id ${id} not found`);
@@ -57,7 +55,7 @@ export class TestCasesService {
   }
 
   getFullTestCase(id: string): TestCase {
-    const testCase = this.loader.get(id);
+    const testCase = this.testCaseLoader.get(id);
 
     if (!testCase) {
       throw new NotFoundException(`Test case with id ${id} not found`);
