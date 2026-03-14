@@ -1,4 +1,4 @@
-import type { TeamDto, CreateTeamDto } from '@evaluator/shared';
+import type { TeamDto, CreateTeamDto, TestCaseBlueprint } from '@evaluator/shared';
 
 const API_BASE = '';
 
@@ -34,4 +34,10 @@ export const teamsApi = {
     fetchJson<void>(`${API_BASE}/teams/${id}`, {
       method: 'DELETE',
     }),
+};
+
+export const testCasesApi = {
+  list: () => fetchJson<TestCaseBlueprint[]>(`${API_BASE}/test-cases`),
+  
+  get: (id: string) => fetchJson<TestCaseBlueprint>(`${API_BASE}/test-cases/${id}`),
 };

@@ -16,13 +16,13 @@
 
 ### Tasks
 
-- [ ] Initialize monorepo structure with npm workspaces
-- [ ] Create Next.js 16 frontend app with TypeScript
-- [ ] Create NestJS API app with TypeScript
-- [ ] Configure Tailwind CSS and shadcn/ui for frontend
-- [ ] Set up ESLint, Prettier, and TypeScript configs
-- [ ] Create shared types package
-- [ ] Create directory structure as per AGENTS.md
+- [x] Initialize monorepo structure with npm workspaces
+- [x] Create Next.js 16 frontend app with TypeScript
+- [x] Create NestJS API app with TypeScript
+- [x] Configure Tailwind CSS and shadcn/ui for frontend
+- [x] Set up ESLint, Prettier, and TypeScript configs
+- [x] Create shared types package
+- [x] Create directory structure as per AGENTS.md
 
 ### Commands
 

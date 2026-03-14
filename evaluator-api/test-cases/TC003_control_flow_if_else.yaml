@@ -1,0 +1,14 @@
+id: TC003
+category: control_flow
+name: If-Else Conditional
+description: Read an integer and print whether it is positive, negative, or zero
+difficulty: 2
+args: []
+stdin: "42"
+expected_stdout: "positive"
+expected_exit_code: 0
+timeout_ms: 5000
+max_memory_mb: 256
+points: 15
+performance_bonus: true
+performance_threshold_ms: 150

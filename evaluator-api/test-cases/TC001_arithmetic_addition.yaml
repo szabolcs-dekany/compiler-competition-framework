@@ -1,0 +1,16 @@
+id: TC001
+category: arithmetic
+name: Integer Addition
+description: Add two positive integers and print result
+difficulty: 1
+args: []
+stdin: |
+  15
+  27
+expected_stdout: "42"
+expected_exit_code: 0
+timeout_ms: 5000
+max_memory_mb: 256
+points: 10
+performance_bonus: true
+performance_threshold_ms: 100

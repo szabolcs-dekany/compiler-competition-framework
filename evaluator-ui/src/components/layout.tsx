@@ -11,6 +11,7 @@ export function Layout({ children }: LayoutProps) {
 
   const navItems = [
     { href: '/teams', label: 'Teams' },
+    { href: '/test-cases', label: 'Test Cases' },
   ];
 
   return (

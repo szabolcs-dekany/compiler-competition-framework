@@ -2,8 +2,10 @@ import { createRouter, createRootRouteWithContext, createRoute, Outlet } from '@
 import type { QueryClient } from '@tanstack/react-query';
 import { queryClient } from './lib/query-client';
 import { teamQueries } from './lib/queries';
+import { testCaseQueries } from './lib/queries';
 import { Layout } from './components/layout';
 import { TeamsPage } from './pages/teams';
+import { TestCasesPage } from './pages/test-cases';
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -32,7 +34,16 @@ const teamsRoute = createRoute({
   },
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, teamsRoute]);
+const testCasesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/test-cases',
+  component: TestCasesPage,
+  loader: ({ context }) => {
+    return context.queryClient.ensureQueryData(testCaseQueries.list());
+  },
+});
+
+const routeTree = rootRoute.addChildren([indexRoute, teamsRoute, testCasesRoute]);
 
 export const router = createRouter({
   routeTree,
