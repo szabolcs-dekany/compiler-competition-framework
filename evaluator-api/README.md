@@ -1,98 +1,206 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Evaluator API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Backend service for the Programming Language Evaluation Framework - a competitive programming contest system where teams submit custom compilers that produce native machine code.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Tech Stack
 
-## Description
+- **Framework**: NestJS 11 with TypeScript
+- **Database**: PostgreSQL with Prisma ORM
+- **Storage**: S3-compatible (Garage/MinIO)
+- **Job Queue**: Redis + BullMQ
+- **API Documentation**: Swagger/OpenAPI
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Prerequisites
 
-## Project setup
+- Node.js 20+
+- PostgreSQL 16
+- Redis 7
+- S3-compatible storage (Garage, MinIO, or AWS S3)
+
+## Getting Started
+
+### 1. Install Dependencies
 
 ```bash
-$ npm install
+npm install
 ```
 
-## Compile and run the project
+### 2. Configure Environment
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+cp .env.example .env
 ```
 
-## Run tests
+Edit `.env` with your configuration:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:postgres@localhost:5432/evaluator` |
+| `REDIS_HOST` | Redis hostname | `localhost` |
+| `REDIS_PORT` | Redis port | `6379` |
+| `S3_ENDPOINT` | S3 endpoint URL | `http://localhost:9000` |
+| `S3_ACCESS_KEY` | S3 access key | - |
+| `S3_SECRET_KEY` | S3 secret key | - |
+| `S3_BUCKET` | S3 bucket name | `evaluator-artifacts` |
+| `S3_REGION` | S3 region | `garage` |
+| `TEST_CASES_DIR` | Test cases directory | `test-cases` |
+
+### 3. Setup Database
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npx prisma generate
+npx prisma migrate dev
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 4. Start the Server
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+# Development (with watch mode)
+npm run start:dev
+
+# Production
+npm run build
+npm run start:prod
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+The API runs on `http://localhost:3000` by default.
 
-## Resources
+## API Documentation
 
-Check out a few resources that may come in handy when working with NestJS:
+Swagger UI is available at `http://localhost:3000/docs`
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+## Project Structure
 
-## Support
+```
+src/
+├── modules/
+│   ├── teams/           # Team management
+│   ├── test-cases/      # Test case definitions
+│   ├── source-files/    # Source file uploads & versioning
+│   └── submissions/     # Submission handling
+├── common/
+│   ├── prisma/          # Prisma client
+│   ├── storage/         # S3 storage service
+│   ├── decorators/      # Custom decorators
+│   └── filters/         # Exception filters
+├── config/              # Configuration modules
+├── workers/             # BullMQ job processors
+├── app.module.ts
+└── main.ts
+prisma/
+├── schema.prisma        # Database schema
+└── migrations/          # Migration files
+test-cases/              # YAML test case definitions
+test/                    # E2E tests
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## Scripts
 
-## Stay in touch
+| Command | Description |
+|---------|-------------|
+| `npm run start:dev` | Start dev server with hot reload |
+| `npm run build` | Build for production |
+| `npm run start:prod` | Run production build |
+| `npm run lint` | Run ESLint with auto-fix |
+| `npm run format` | Format with Prettier |
+| `npm run test` | Run unit tests |
+| `npm run test:watch` | Run tests in watch mode |
+| `npm run test:cov` | Run tests with coverage |
+| `npm run test:e2e` | Run end-to-end tests |
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+### Running Single Tests
+
+```bash
+# By file pattern
+npm run test -- --testPathPattern="teams.controller"
+
+# By test name
+npm run test -- --testNamePattern="should create a team"
+
+# Single e2e test
+npm run test:e2e -- --testPathPattern="app"
+```
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| **Teams** |||
+| `GET` | `/api/teams` | List all teams |
+| `POST` | `/api/teams` | Create a team |
+| `GET` | `/api/teams/:id` | Get team by ID |
+| `DELETE` | `/api/teams/:id` | Delete a team |
+| **Test Cases** |||
+| `GET` | `/api/test-cases` | List all test case blueprints |
+| `GET` | `/api/test-cases/:id` | Get test case blueprint |
+| **Source Files** |||
+| `GET` | `/api/source-files?teamId=xxx` | List team's source files |
+| `POST` | `/api/source-files` | Upload source file |
+| `GET` | `/api/source-files/:id` | Get source file metadata |
+| `GET` | `/api/source-files/:id/versions` | Get version history |
+| `GET` | `/api/source-files/:id/download` | Download latest version |
+| `GET` | `/api/source-files/:id/versions/:version/download` | Download specific version |
+| `PUT` | `/api/source-files/:id` | Replace source file |
+| **Submissions** |||
+| `GET` | `/api/submissions` | List all submissions |
+| `POST` | `/api/submissions` | Create submission |
+| `GET` | `/api/submissions/:id` | Get submission details |
+| `GET` | `/api/submissions/team/:teamId` | List team's submissions |
+| `GET` | `/api/submissions/:id/test-runs` | Get test run results |
+
+## Test Cases
+
+Test cases are defined as YAML files in `test-cases/`:
+
+```yaml
+id: TC001
+category: arithmetic
+name: Integer Addition
+description: Add two positive integers and print result
+difficulty: 1
+args: []
+stdin: |
+  15
+  27
+expected_stdout: "42"
+expected_exit_code: 0
+timeout_ms: 5000
+max_memory_mb: 256
+points: 10
+performance_bonus: true
+performance_threshold_ms: 100
+```
+
+## Database Management
+
+```bash
+# Generate Prisma client after schema changes
+npx prisma generate
+
+# Create and apply migration
+npx prisma migrate dev --name description
+
+# Reset database (warning: deletes all data)
+npx prisma migrate reset
+
+# Open Prisma Studio (database GUI)
+npx prisma studio
+```
+
+## Development with Docker
+
+From the project root, start the infrastructure:
+
+```bash
+docker-compose up -d
+```
+
+This starts:
+- PostgreSQL on port 5432
+- Redis on port 6379
+- Garage (S3) on port 9000
+- Garage WebUI on port 3909
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+UNLICENSED - Private project

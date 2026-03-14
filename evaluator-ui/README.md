@@ -1,73 +1,218 @@
-# React + TypeScript + Vite
+# Evaluator UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Frontend application for the Programming Language Evaluation Framework - a competitive programming contest system where teams submit custom compilers that produce native machine code.
 
-Currently, two official plugins are available:
+## Tech Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Framework**: React 19 with TypeScript
+- **Build Tool**: Vite 7
+- **Routing**: TanStack Router
+- **State Management**: TanStack Query (React Query)
+- **UI Components**: shadcn/ui (Radix primitives)
+- **Styling**: Tailwind CSS 4
+- **Forms**: React Hook Form + Zod
+- **Icons**: Lucide React
 
-## React Compiler
+## Prerequisites
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Node.js 20+
+- Backend API running on `http://localhost:3000`
 
-## Expanding the ESLint configuration
+## Getting Started
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### 1. Install Dependencies
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### 2. Start Development Server
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run dev
 ```
+
+The app runs on `http://localhost:5173` by default.
+
+The Vite dev server proxies `/api` requests to the backend at `http://localhost:3000`.
+
+## Project Structure
+
+```
+src/
+├── components/
+│   ├── ui/                # shadcn/ui primitives
+│   ├── layout.tsx         # Main layout wrapper
+│   ├── source-files/      # Source file management components
+│   ├── submissions/       # Submission components
+│   ├── teams/             # Team components
+│   └── test-cases/        # Test case components
+├── pages/                 # Route page components
+│   ├── teams/
+│   │   ├── index.tsx      # /teams - Teams list
+│   │   └── [teamId]/      # /teams/:teamId - Team detail
+│   ├── submissions/
+│   │   └── page.tsx       # /submissions
+│   └── test-cases/
+│       └── index.tsx      # /test-cases
+├── lib/
+│   ├── api-client.ts      # API fetch functions by resource
+│   ├── queries.ts         # TanStack Query options
+│   ├── query-client.ts    # Query client instance
+│   ├── hooks/             # Custom mutation hooks
+│   └── utils.ts           # Utility functions
+├── router.tsx             # TanStack Router config with loaders
+├── main.tsx               # App entry point
+└── index.css              # Global styles + Tailwind
+```
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start dev server (port 5173) |
+| `npm run build` | Build for production |
+| `npm run lint` | Run ESLint |
+| `npm run preview` | Preview production build |
+
+## Routes
+
+| Path | Component | Description |
+|------|-----------|-------------|
+| `/` | TeamsPage | Redirects to teams list |
+| `/teams` | TeamsPage | List all teams |
+| `/teams/:teamId` | TeamDetailPage | Team details with source files |
+| `/test-cases` | TestCasesPage | List all test cases |
+| `/submissions` | SubmissionsPage | List all submissions |
+
+## Architecture Patterns
+
+### API Client
+
+API functions are grouped by resource in `lib/api-client.ts`:
+
+```typescript
+export const teamsApi = {
+  list: () => fetchJson<TeamDto[]>(`${API_BASE}/teams`),
+  get: (id: string) => fetchJson<TeamDto>(`${API_BASE}/teams/${id}`),
+  create: (data: CreateTeamDto) => fetchJson<TeamDto>(`${API_BASE}/teams`, { ... }),
+};
+```
+
+### Query Options
+
+Query options are centralized in `lib/queries.ts`:
+
+```typescript
+export const teamQueries = {
+  list: () => queryOptions({ queryKey: ['teams'], queryFn: () => teamsApi.list() }),
+  detail: (id: string) => queryOptions({ queryKey: ['teams', id], queryFn: () => teamsApi.get(id) }),
+};
+```
+
+### Mutation Hooks
+
+Mutations with cache invalidation in `lib/hooks/`:
+
+```typescript
+export function useUploadSourceFile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ data, file }) => sourceFilesApi.upload(data, file),
+    onSuccess: (_, { data }) => {
+      queryClient.invalidateQueries({ queryKey: sourceFileQueries.list(data.teamId).queryKey });
+    },
+  });
+}
+```
+
+### Route Loaders
+
+Routes prefetch data via loaders in `router.tsx`:
+
+```typescript
+const teamDetailRoute = createRoute({
+  path: '/teams/$teamId',
+  component: TeamDetailPage,
+  loader: ({ context, params }) => {
+    context.queryClient.ensureQueryData(teamQueries.detail(params.teamId));
+    context.queryClient.ensureQueryData(sourceFileQueries.list(params.teamId));
+  },
+});
+```
+
+### Page Components
+
+Pages use `useSuspenseQuery` for data fetching:
+
+```typescript
+export function TeamDetailPage() {
+  const { teamId } = useParams({ from: '/teams/$teamId' });
+  const { data: team } = useSuspenseQuery(teamQueries.detail(teamId));
+  const { data: sourceFiles } = useSuspenseQuery(sourceFileQueries.list(teamId));
+  // ...
+}
+```
+
+## Adding Components
+
+### shadcn/ui Components
+
+```bash
+npx shadcn add button
+npx shadcn add dialog
+npx shadcn add form
+```
+
+### Custom Components
+
+Place feature-specific components in their respective folders:
+- `components/source-files/` - Source file related components
+- `components/teams/` - Team related components
+- etc.
+
+## Path Aliases
+
+Configured in `vite.config.ts`:
+
+| Alias | Path |
+|-------|------|
+| `@/*` | `./src/*` |
+
+Example usage:
+```typescript
+import { Button } from '@/components/ui/button';
+import { teamQueries } from '@/lib/queries';
+```
+
+## API Proxy
+
+Development requests to `/api/*` are proxied to the backend:
+
+```typescript
+// vite.config.ts
+server: {
+  proxy: {
+    '/api': { target: 'http://localhost:3000', changeOrigin: true },
+  },
+}
+```
+
+## Shared Types
+
+Types are imported from the `@evaluator/shared` package:
+
+```typescript
+import type { TeamDto, SourceFileDto, TestCaseBlueprint } from '@evaluator/shared';
+```
+
+## Styling
+
+- Tailwind CSS 4 with CSS variables for theming
+- shadcn/ui components use Radix primitives
+- Dark mode support via `next-themes`
+- Global styles in `src/index.css`
+
+## License
+
+UNLICENSED - Private project

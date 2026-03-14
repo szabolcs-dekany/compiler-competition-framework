@@ -14,6 +14,7 @@ A competitive programming contest framework where teams submit custom compilers 
 ├── evaluator-ui/           # React + Vite frontend (port 5173)
 ├── shared/                 # Shared TypeScript types
 ├── specification/          # Design documents
+├── docker/                 # Docker configuration files
 └── AGENTS.md
 ```
 
@@ -21,11 +22,11 @@ A competitive programming contest framework where teams submit custom compilers 
 
 | Layer | Technology |
 |-------|------------|
-| API | NestJS 11 with TypeScript, @nestjs/swagger, @nestjs/bullmq |
-| Frontend | React 19 + Vite + TanStack Router/Query + shadcn/ui + Tailwind CSS 4 |
+| API | NestJS 11, TypeScript, @nestjs/swagger, @nestjs/bullmq, Prisma ORM |
+| Frontend | React 19, Vite, TanStack Router/Query, shadcn/ui, Tailwind CSS 4 |
 | Job Queue | Redis + BullMQ |
-| Database | PostgreSQL with Prisma ORM |
-| Storage | S3/MinIO for artifacts |
+| Database | PostgreSQL |
+| Storage | S3-compatible (Garage) |
 
 ---
 
@@ -38,7 +39,7 @@ cd evaluator-api
 
 # Development
 npm run start:dev              # Start with watch mode
-npm run build                  # Build for production
+npm run build                  # Build for production (use `nest build`, NOT `tsc`)
 
 # Code Quality
 npm run lint                   # Run ESLint with auto-fix
@@ -83,6 +84,13 @@ npm run build                  # Build TypeScript
 npm run dev                    # Build in watch mode
 ```
 
+### Infrastructure
+
+```bash
+# From project root
+docker-compose up -d           # Start PostgreSQL, Redis, Garage (S3)
+```
+
 ---
 
 ## Project Structure
@@ -94,17 +102,17 @@ evaluator-api/
 ├── src/
 │   ├── modules/               # Feature modules
 │   │   ├── teams/
-│   │   │   ├── dto/
-│   │   │   ├── entities/
+│   │   │   ├── dto/           # Data Transfer Objects
+│   │   │   ├── entities/      # Swagger entities
 │   │   │   ├── teams.controller.ts
 │   │   │   ├── teams.controller.spec.ts
 │   │   │   ├── teams.service.ts
 │   │   │   ├── teams.service.spec.ts
 │   │   │   └── teams.module.ts
-│   │   ├── test-cases/
+│   │   ├── source-files/
 │   │   ├── submissions/
-│   │   └── ...
-│   ├── common/                # Shared: prisma/, decorators/, filters/, guards/
+│   │   └── test-cases/
+│   ├── common/                # Shared: prisma/, storage/, decorators/, filters/, guards/
 │   ├── config/                # Configuration
 │   ├── workers/               # BullMQ job processors
 │   ├── app.module.ts
@@ -121,15 +129,22 @@ evaluator-ui/
 ├── src/
 │   ├── components/
 │   │   ├── ui/                # shadcn/ui components
+│   │   ├── source-files/      # Source file components
 │   │   ├── teams/             # Team-specific components
 │   │   └── test-cases/        # Test case components
-│   ├── pages/                 # Route page components
+│   ├── pages/                 # Route page components (mirrors route structure)
+│   │   ├── teams/
+│   │   │   ├── index.tsx      # /teams
+│   │   │   └── [teamId]/      # /teams/:teamId
+│   │   ├── submissions/
+│   │   └── test-cases/
 │   ├── lib/
-│   │   ├── api-client.ts      # API fetch functions
-│   │   ├── queries.ts         # TanStack Query options
-│   │   ├── hooks/             # Custom hooks
-│   │   └── utils.ts
-│   ├── router.tsx             # TanStack Router config
+│   │   ├── api-client.ts      # API fetch functions grouped by resource
+│   │   ├── queries.ts         # TanStack Query options grouped by resource
+│   │   ├── hooks/             # Custom hooks (mutations, etc.)
+│   │   ├── query-client.ts    # Query client instance
+│   │   └── utils.ts           # Utility functions
+│   ├── router.tsx             # TanStack Router config with loaders
 │   └── main.tsx
 └── vite.config.ts             # Proxy config for backend
 ```
@@ -144,6 +159,7 @@ shared/src/
     ├── submission.ts
     ├── test-case.ts
     ├── test-run.ts
+    ├── source-file.ts
     └── enums.ts
 ```
 
@@ -156,31 +172,36 @@ shared/src/
 ```typescript
 // 1. NestJS/common packages
 import { Controller, Get, Post, Body, Param, NotFoundException } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 
-// 2. External libraries
-import * as fs from 'fs';
+// 2. External libraries (use namespace imports for node modules)
+import * as crypto from 'crypto';
 import * as yaml from 'js-yaml';
 
-// 3. Internal modules (relative)
-import { TeamsService } from './teams.service';
-import { CreateTeamDto } from './dto/create-team.dto';
-import { Team } from './entities/team.entity';
+// 3. Shared types (use import type for type-only imports)
+import type { SourceFileDto, SourceFileListDto } from '@evaluator/shared';
+
+// 4. Internal modules (relative)
+import { SourceFilesService } from './source-files.service';
+import { UploadSourceFileDto } from './dto/upload-source-file.dto';
+import { SourceFileEntity } from './entities/source-file.entity';
 ```
 
 ### Imports (Frontend)
 
 ```typescript
 // 1. React/external packages
-import { useSuspenseQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link, useParams } from '@tanstack/react-router';
 
 // 2. Shared types
-import type { TeamDto, TestCaseBlueprint } from '@evaluator/shared';
+import type { TeamDto, TestCaseBlueprint, UploadSourceFileDto } from '@evaluator/shared';
 
-// 3. Internal modules (alias)
-import { teamQueries } from '@/lib/queries';
+// 3. Internal modules (using @ alias)
+import { teamQueries, sourceFileQueries } from '@/lib/queries';
+import { sourceFilesApi } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 ```
 
 ### Formatting
@@ -190,6 +211,7 @@ import { Button } from '@/components/ui/button';
 - 2-space indentation
 - Use semicolons
 - Max line length: 100 chars (Prettier default)
+- No comments unless explicitly requested
 
 ### TypeScript
 
@@ -197,7 +219,7 @@ import { Button } from '@/components/ui/button';
 - Explicit return types for public controller methods and service functions
 - Prefer `interface` for object shapes, `type` for unions/utility types
 - Avoid `any`; use `unknown` when type is truly unknown
-- Use `import type` for type-only imports when required by linter
+- Use `import type` for type-only imports from shared package
 
 ### Naming Conventions
 
@@ -207,12 +229,33 @@ import { Button } from '@/components/ui/button';
 | Files (tests) | dot-separated | `teams.controller.spec.ts` |
 | Files (e2e tests) | dot-separated | `app.e2e-spec.ts` |
 | Classes | PascalCase | `TeamsController` |
-| DTOs | PascalCase + suffix | `CreateTeamDto`, `TestCaseBlueprintDto` |
-| Interfaces/Types | PascalCase | `TestCase`, `TestCaseBlueprint` |
+| DTOs | PascalCase + suffix | `CreateTeamDto`, `UploadSourceFileDto` |
+| Entities (Swagger) | PascalCase + suffix | `TeamEntity`, `SourceFileEntity` |
+| Interfaces/Types | PascalCase | `TestCase`, `SourceFileListDto` |
 | Functions | camelCase | `evaluateTestRun` |
 | Constants | SCREAMING_SNAKE | `MAX_TIMEOUT_MS` |
-| Enums | PascalCase | `TestRunStatus` |
-| React components | PascalCase | `TeamsTable`, `TestCasesPage` |
+| Enums | PascalCase | `TestRunStatus`, `SubmissionStatus` |
+| React components | PascalCase | `TeamsTable`, `TeamDetailPage` |
+| React hooks | camelCase + use prefix | `useUploadSourceFile` |
+
+---
+
+## Important Notes
+
+### ID Format
+- Prisma uses `@default(cuid())` which generates CUIDs (like `clx123abc`), NOT UUIDs
+- Controllers must NOT use `ParseUUIDPipe` - use plain `@Param('id')` instead
+
+### Build Commands
+- Use `nest build` for backend, NOT `tsc` directly (decorator metadata issues)
+- Frontend uses `tsc -b && vite build`
+
+### Checksum Display
+- Truncate SHA256 checksums to first 8 characters (e.g., `a1b2c3d4...`)
+
+### API Prefix
+- Backend endpoints are prefixed with `/api` (e.g., `/api/teams`, `/api/test-cases`)
+- Frontend proxies `/api` to backend via vite.config.ts
 
 ---
 
@@ -221,30 +264,51 @@ import { Button } from '@/components/ui/button';
 ### Controllers
 
 ```typescript
-@ApiTags('teams')
-@Controller('teams')
-export class TeamsController {
-  constructor(private readonly teamsService: TeamsService) {}
+@ApiTags('source-files')
+@Controller('source-files')
+export class SourceFilesController {
+  constructor(private readonly sourceFilesService: SourceFilesService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Register a new team' })
-  @ApiResponse({ status: 201, description: 'Team created', type: Team })
-  @ApiResponse({ status: 400, description: 'Invalid input' })
-  create(@Body() createTeamDto: CreateTeamDto): Promise<Team> {
-    return this.teamsService.create(createTeamDto);
+  @ApiOperation({ summary: 'Upload a source file' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', required: ['teamId'], properties: { teamId: { type: 'string' } } } })
+  @ApiResponse({ status: 201, description: 'Created', type: SourceFileEntity })
+  @ApiResponse({ status: 404, description: 'Team not found' })
+  @UseInterceptors(FileInterceptor('file'))
+  async upload(
+    @Body() dto: UploadSourceFileDto,
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<SourceFileEntity> {
+    return this.sourceFilesService.create(dto, file);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a team by ID' })
-  @ApiParam({ name: 'id', description: 'Team ID' })
-  @ApiResponse({ status: 200, type: Team })
-  @ApiResponse({ status: 404, description: 'Team not found' })
-  async findOne(@Param('id') id: string): Promise<Team> {
-    const team = await this.teamsService.findOne(id);
-    if (!team) {
-      throw new NotFoundException(`Team with id ${id} not found`);
-    }
-    return team;
+  @ApiOperation({ summary: 'Get by ID' })
+  @ApiParam({ name: 'id', description: 'Resource ID' })
+  @ApiResponse({ status: 200, type: SourceFileEntity })
+  @ApiResponse({ status: 404, description: 'Not found' })
+  async findOne(@Param('id') id: string): Promise<SourceFileEntity> {
+    return this.sourceFilesService.findOne(id);
+  }
+}
+```
+
+### Services
+
+```typescript
+@Injectable()
+export class TeamsService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async create(createTeamDto: CreateTeamDto): Promise<Team> {
+    return this.prisma.team.create({
+      data: { name: createTeamDto.name },
+    });
+  }
+
+  async findOne(id: string): Promise<Team | null> {
+    return this.prisma.team.findUnique({ where: { id } });
   }
 }
 ```
@@ -265,7 +329,19 @@ export class CreateTeamDto {
 
 - Use NestJS exceptions: `NotFoundException`, `BadRequestException`, `ConflictException`
 - Never catch and swallow errors silently
-- Always include the resource ID in error messages
+- Always include the resource ID in error messages: `Team with id ${id} not found`
+
+### Entity Classes (Swagger)
+
+```typescript
+export class SourceFileEntity {
+  @ApiProperty({ example: 'clx123abc' })
+  id: string;
+
+  @ApiProperty({ example: 'TC001' })
+  testCaseId: string;
+}
+```
 
 ---
 
@@ -275,6 +351,8 @@ export class CreateTeamDto {
 
 ```typescript
 // src/lib/api-client.ts
+const API_BASE = '/api';
+
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -288,9 +366,10 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const teamsApi = {
-  list: () => fetchJson<TeamDto[]>(`/teams`),
-  get: (id: string) => fetchJson<TeamDto>(`/teams/${id}`),
-  create: (data: CreateTeamDto) => fetchJson<TeamDto>(`/teams`, { method: 'POST', body: JSON.stringify(data) }),
+  list: () => fetchJson<TeamDto[]>(`${API_BASE}/teams`),
+  get: (id: string) => fetchJson<TeamDto>(`${API_BASE}/teams/${id}`),
+  create: (data: CreateTeamDto) =>
+    fetchJson<TeamDto>(`${API_BASE}/teams`, { method: 'POST', body: JSON.stringify(data) }),
 };
 ```
 
@@ -299,36 +378,68 @@ export const teamsApi = {
 ```typescript
 // src/lib/queries.ts
 export const teamQueries = {
-  list: () => queryOptions({
-    queryKey: ['teams'],
-    queryFn: () => teamsApi.list(),
-  }),
-  detail: (id: string) => queryOptions({
-    queryKey: ['teams', id],
-    queryFn: () => teamsApi.get(id),
-  }),
+  list: () =>
+    queryOptions({
+      queryKey: ['teams'],
+      queryFn: () => teamsApi.list(),
+    }),
+
+  detail: (id: string) =>
+    queryOptions({
+      queryKey: ['teams', id],
+      queryFn: () => teamsApi.get(id),
+    }),
 };
+```
+
+### Mutation Hooks
+
+```typescript
+// src/lib/hooks/use-source-files-mutations.ts
+export function useUploadSourceFile() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ data, file }: { data: UploadSourceFileDto; file: File }) =>
+      sourceFilesApi.upload(data, file),
+    onSuccess: (_, { data }) => {
+      queryClient.invalidateQueries({
+        queryKey: sourceFileQueries.list(data.teamId).queryKey,
+      });
+    },
+  });
+}
 ```
 
 ### Page Components
 
 ```typescript
-// src/pages/teams/index.tsx
-export function TeamsPage() {
-  const { data: teams } = useSuspenseQuery(teamQueries.list());
-  return ( /* JSX */ );
+// src/pages/teams/[teamId]/index.tsx
+export function TeamDetailPage() {
+  const { teamId } = useParams({ from: '/teams/$teamId' });
+  const { data: team } = useSuspenseQuery(teamQueries.detail(teamId));
+  const { data: sourceFiles } = useSuspenseQuery(sourceFileQueries.list(teamId));
+
+  return (
+    <div className="space-y-6">
+      {/* JSX */}
+    </div>
+  );
 }
 ```
 
-### Routes
+### Routes with Loaders
 
 ```typescript
 // src/router.tsx
-const teamsRoute = createRoute({
+const teamDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/teams',
-  component: TeamsPage,
-  loader: ({ context }) => context.queryClient.ensureQueryData(teamQueries.list()),
+  path: '/teams/$teamId',
+  component: TeamDetailPage,
+  loader: ({ context, params }) => {
+    context.queryClient.ensureQueryData(teamQueries.detail(params.teamId));
+    context.queryClient.ensureQueryData(sourceFileQueries.list(params.teamId));
+  },
 });
 ```
 
@@ -357,25 +468,7 @@ performance_bonus: true
 performance_threshold_ms: 100
 ```
 
-**Blueprints** (API responses) exclude `expected_stdout` and `expected_exit_code`. These are only revealed in test run results.
-
----
-
-## Proxy Configuration
-
-Frontend proxies API calls to backend via `vite.config.ts`:
-
-```typescript
-server: {
-  port: 5173,
-  proxy: {
-    '/api': { target: 'http://localhost:3000', changeOrigin: true },
-  },
-},
-```
-
-Backend API endpoints are prefixed with `/api` (e.g., `/api/teams`, `/api/test-cases`).
-Swagger docs available at `http://localhost:3000/docs`.
+**Blueprints** (API responses) exclude `expected_stdout` and `expected_exit_code`.
 
 ---
 
@@ -391,8 +484,14 @@ Container execution must include:
 
 ---
 
-## Specification Documents
+## Infrastructure Ports
 
-Key specification files in `/specification/`:
-- `Programming_Language_Evaluation_Framework_Specification.md` - Full system architecture
-- `Test_Criteria_Specification.md` - Test case definitions and scoring
+| Service | Port |
+|---------|------|
+| Backend API | 3000 |
+| Frontend Dev | 5173 |
+| PostgreSQL | 5432 |
+| Redis | 6379 |
+| Garage (S3) | 9000 |
+| Garage Admin | 3909 |
+| Swagger Docs | 3000/docs |
