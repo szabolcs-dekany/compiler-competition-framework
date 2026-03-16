@@ -1,4 +1,4 @@
-import type { TeamDto, CreateTeamDto, TestCaseBlueprint, SubmissionDto, CreateSubmissionDto, TestRunWithDetailsDto, SourceFileDto, SourceFileListDto, UploadSourceFileDto, SourceFileVersionDto } from '@evaluator/shared';
+import type { TeamDto, CreateTeamDto, TestCaseBlueprint, SubmissionDto, CreateSubmissionDto, TestRunWithDetailsDto, SourceFileDto, SourceFileListDto, UploadSourceFileDto, SourceFileVersionDto, DockerfileDto, DockerfileListDto, DockerfileVersionDto } from '@evaluator/shared';
 
 const API_BASE = '/api';
 
@@ -91,6 +91,40 @@ export const sourceFilesApi = {
     const formData = new FormData();
     formData.append('file', file);
     return fetchJson<SourceFileDto>(`${API_BASE}/source-files/${id}`, {
+      method: 'PUT',
+      headers: {},
+      body: formData,
+    });
+  },
+};
+
+export const dockerfilesApi = {
+  list: () => fetchJson<DockerfileListDto[]>(`${API_BASE}/dockerfiles`),
+
+  getByTeam: (teamId: string) => fetchJson<DockerfileDto>(`${API_BASE}/dockerfiles/by-team?teamId=${teamId}`),
+
+  getById: (id: string) => fetchJson<DockerfileDto>(`${API_BASE}/dockerfiles/${id}`),
+
+  getVersions: (id: string) => fetchJson<DockerfileVersionDto[]>(`${API_BASE}/dockerfiles/${id}/versions`),
+
+  download: (id: string) => fetch(`${API_BASE}/dockerfiles/${id}/download`).then((r) => r.blob()),
+
+  downloadVersion: (id: string, version: number) => fetch(`${API_BASE}/dockerfiles/${id}/versions/${version}/download`).then((r) => r.blob()),
+
+  upload: (teamId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return fetchJson<DockerfileDto>(`${API_BASE}/dockerfiles?teamId=${teamId}`, {
+      method: 'POST',
+      headers: {},
+      body: formData,
+    });
+  },
+
+  replace: (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return fetchJson<DockerfileDto>(`${API_BASE}/dockerfiles/${id}`, {
       method: 'PUT',
       headers: {},
       body: formData,

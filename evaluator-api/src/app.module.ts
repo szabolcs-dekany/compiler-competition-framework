@@ -4,6 +4,7 @@ import { TeamsModule } from './modules/teams/teams.module';
 import { TestCasesModule } from './modules/test-cases/test-cases.module';
 import { SubmissionsModule } from './modules/submissions/submissions.module';
 import { SourceFilesModule } from './modules/source-files/source-files.module';
+import { DockerfilesModule } from './modules/dockerfiles/dockerfiles.module';
 import { StorageModule } from './common/storage/storage.module';
 import { TestCaseLoaderModule } from './common/test-case-loader/test-case-loader.module';
 
@@ -16,6 +17,7 @@ import { TestCaseLoaderModule } from './common/test-case-loader/test-case-loader
     TestCasesModule,
     SubmissionsModule,
     SourceFilesModule,
+    DockerfilesModule,
   ],
   controllers: [],
   providers: [],

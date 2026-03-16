@@ -12,6 +12,36 @@ model Team {
   createdAt    DateTime      @default(now())
   submissions  Submission[]
   sourceFiles  SourceFile[]
+  dockerfile   Dockerfile?
+}
+
+model Dockerfile {
+  id            String              @id @default(cuid())
+  teamId        String              @unique
+  team          Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  originalName  String
+  s3Key         String
+  size          Int
+  checksum      String
+  version       Int                 @default(1)
+  uploadedAt    DateTime            @default(now())
+  versions      DockerfileVersion[]
+
+  @@index([teamId])
+}
+
+model DockerfileVersion {
+  id            String      @id @default(cuid())
+  dockerfileId  String
+  dockerfile    Dockerfile  @relation(fields: [dockerfileId], references: [id], onDelete: Cascade)
+  version       Int
+  s3Key         String
+  size          Int
+  checksum      String
+  uploadedAt    DateTime    @default(now())
+
+  @@unique([dockerfileId, version])
+  @@index([dockerfileId])
 }
 
 model SourceFile {

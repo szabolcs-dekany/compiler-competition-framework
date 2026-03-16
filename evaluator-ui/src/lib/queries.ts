@@ -1,5 +1,5 @@
 import { queryOptions } from '@tanstack/react-query';
-import { teamsApi, testCasesApi, submissionsApi, sourceFilesApi } from './api-client';
+import { teamsApi, testCasesApi, submissionsApi, sourceFilesApi, dockerfilesApi } from './api-client';
 
 export const teamQueries = {
   list: () =>
@@ -72,5 +72,31 @@ export const sourceFileQueries = {
     queryOptions({
       queryKey: ['source-files', id, 'versions'],
       queryFn: () => sourceFilesApi.getVersions(id),
+    }),
+};
+
+export const dockerfileQueries = {
+  list: () =>
+    queryOptions({
+      queryKey: ['dockerfiles'],
+      queryFn: () => dockerfilesApi.list(),
+    }),
+
+  byTeam: (teamId: string) =>
+    queryOptions({
+      queryKey: ['dockerfiles', 'team', teamId],
+      queryFn: () => dockerfilesApi.getByTeam(teamId),
+    }),
+
+  detail: (id: string) =>
+    queryOptions({
+      queryKey: ['dockerfiles', id],
+      queryFn: () => dockerfilesApi.getById(id),
+    }),
+
+  versions: (id: string) =>
+    queryOptions({
+      queryKey: ['dockerfiles', id, 'versions'],
+      queryFn: () => dockerfilesApi.getVersions(id),
     }),
 };

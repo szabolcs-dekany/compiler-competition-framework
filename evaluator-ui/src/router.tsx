@@ -1,7 +1,7 @@
 import { createRouter, createRootRouteWithContext, createRoute, Outlet } from '@tanstack/react-router';
 import type { QueryClient } from '@tanstack/react-query';
 import { queryClient } from './lib/query-client';
-import { teamQueries, testCaseQueries, submissionQueries, sourceFileQueries } from './lib/queries';
+import { teamQueries, testCaseQueries, submissionQueries, sourceFileQueries, dockerfileQueries } from './lib/queries';
 import { Layout } from './components/layout';
 import { TeamsPage } from './pages/teams';
 import { TeamDetailPage } from './pages/teams/[teamId]';
@@ -60,7 +60,9 @@ const submissionsRoute = createRoute({
   path: '/submissions',
   component: SubmissionsPage,
   loader: ({ context }) => {
-    return context.queryClient.ensureQueryData(submissionQueries.list());
+    context.queryClient.ensureQueryData(submissionQueries.list());
+    context.queryClient.ensureQueryData(teamQueries.list());
+    context.queryClient.ensureQueryData(dockerfileQueries.list());
   },
 });
 
