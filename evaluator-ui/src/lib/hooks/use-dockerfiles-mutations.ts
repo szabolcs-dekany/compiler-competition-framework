@@ -8,9 +8,9 @@ export function useUploadDockerfile() {
   return useMutation({
     mutationFn: ({ teamId, file }: { teamId: string; file: File }) =>
       dockerfilesApi.upload(teamId, file),
-    onSuccess: (_, { teamId }) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: dockerfileQueries.byTeam(teamId).queryKey,
+        queryKey: dockerfileQueries.list().queryKey,
       });
     },
   });
@@ -20,11 +20,11 @@ export function useReplaceDockerfile() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, file }: { id: string; file: File; teamId: string }) =>
+    mutationFn: ({ id, file }: { id: string; file: File }) =>
       dockerfilesApi.replace(id, file),
-    onSuccess: (_, variables) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: dockerfileQueries.byTeam(variables.teamId).queryKey,
+        queryKey: dockerfileQueries.list().queryKey,
       });
     },
   });

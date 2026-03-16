@@ -78,7 +78,6 @@ export function UploadDockerfileDialog({
         await replaceDockerfile.mutateAsync({
           id: existingDockerfile.id,
           file,
-          teamId: selectedTeamId,
         });
         toast.success('Dockerfile replaced');
       } else {
