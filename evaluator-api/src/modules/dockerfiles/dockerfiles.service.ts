@@ -1,8 +1,16 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { UploadDockerfileDto } from './dto/upload-dockerfile.dto';
-import type { DockerfileDto, DockerfileVersionDto, DockerfileListDto } from '@evaluator/shared';
+import type {
+  DockerfileDto,
+  DockerfileVersionDto,
+  DockerfileListDto,
+} from '@evaluator/shared';
 import * as crypto from 'crypto';
 
 const DOCKERFILE_FILENAME = 'Dockerfile';
@@ -134,7 +142,9 @@ export class DockerfilesService {
     });
 
     if (!dockerfile) {
-      throw new NotFoundException(`Dockerfile with id ${dockerfileId} not found`);
+      throw new NotFoundException(
+        `Dockerfile with id ${dockerfileId} not found`,
+      );
     }
 
     const versions = await this.prisma.dockerfileVersion.findMany({
@@ -175,7 +185,9 @@ export class DockerfilesService {
     });
 
     if (!dockerfile) {
-      throw new NotFoundException(`Dockerfile with id ${dockerfileId} not found`);
+      throw new NotFoundException(
+        `Dockerfile with id ${dockerfileId} not found`,
+      );
     }
 
     const versionRecord = await this.prisma.dockerfileVersion.findUnique({

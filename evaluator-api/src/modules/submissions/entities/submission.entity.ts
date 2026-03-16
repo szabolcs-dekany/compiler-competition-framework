@@ -14,8 +14,14 @@ export class Submission {
   @ApiProperty({ example: 1 })
   version: number;
 
+  @ApiProperty({ example: 'my-compiler.tar.gz' })
+  originalName: string;
+
+  @ApiProperty({ example: '.tar.gz' })
+  extension: string;
+
   @ApiProperty({
-    example: '/artifacts/compilers/team1/v1.tar.gz',
+    example: 'compilers/clx456def/clx123abc.tar.gz',
     nullable: true,
   })
   compilerPath: string | null;

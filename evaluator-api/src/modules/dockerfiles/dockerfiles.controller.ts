@@ -27,7 +27,10 @@ import { UploadDockerfileDto } from './dto/upload-dockerfile.dto';
 import { DockerfileEntity } from './entities/dockerfile.entity';
 import { DockerfileVersionEntity } from './entities/dockerfile-version.entity';
 import { DockerfileListEntity } from './entities/dockerfile-list.entity';
-import type { DockerfileVersionDto, DockerfileListDto } from '@evaluator/shared';
+import type {
+  DockerfileVersionDto,
+  DockerfileListDto,
+} from '@evaluator/shared';
 
 @ApiTags('dockerfiles')
 @Controller('dockerfiles')
@@ -67,7 +70,10 @@ export class DockerfilesController {
     description: 'Dockerfile uploaded',
     type: DockerfileEntity,
   })
-  @ApiResponse({ status: 400, description: 'Invalid file name or team not found' })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid file name or team not found',
+  })
   @UseInterceptors(FileInterceptor('file'))
   async upload(
     @Query('teamId') teamId: string,
@@ -85,7 +91,9 @@ export class DockerfilesController {
     type: DockerfileEntity,
   })
   @ApiResponse({ status: 404, description: 'No Dockerfile found for team' })
-  async findByTeamId(@Query('teamId') teamId: string): Promise<DockerfileEntity> {
+  async findByTeamId(
+    @Query('teamId') teamId: string,
+  ): Promise<DockerfileEntity> {
     const dockerfile = await this.dockerfilesService.findByTeamId(teamId);
     if (!dockerfile) {
       throw new NotFoundException(`No Dockerfile found for team ${teamId}`);

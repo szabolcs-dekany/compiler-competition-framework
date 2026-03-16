@@ -77,15 +77,17 @@ model SourceFileVersion {
 }
 
 model Submission {
-  id           String           @id @default(cuid())
-  teamId       String
-  team         Team             @relation(fields: [teamId], references: [id])
-  version      Int              @default(1)
-  compilerPath String?
-  status       SubmissionStatus @default(PENDING)
-  submittedAt  DateTime         @default(now())
-  testRuns     TestRun[]
-  totalScore   Int              @default(0)
+  id            String           @id @default(cuid())
+  teamId        String
+  team          Team             @relation(fields: [teamId], references: [id])
+  version       Int              @default(1)
+  originalName  String
+  extension     String
+  compilerPath  String?
+  status        SubmissionStatus @default(PENDING)
+  submittedAt   DateTime         @default(now())
+  testRuns      TestRun[]
+  totalScore    Int              @default(0)
 }
 
 model TestRun {

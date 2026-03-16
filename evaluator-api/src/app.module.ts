@@ -7,6 +7,7 @@ import { SourceFilesModule } from './modules/source-files/source-files.module';
 import { DockerfilesModule } from './modules/dockerfiles/dockerfiles.module';
 import { StorageModule } from './common/storage/storage.module';
 import { TestCaseLoaderModule } from './common/test-case-loader/test-case-loader.module';
+import { JobsModule } from './modules/job/jobs.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { TestCaseLoaderModule } from './common/test-case-loader/test-case-loader
     SubmissionsModule,
     SourceFilesModule,
     DockerfilesModule,
+    JobsModule,
   ],
   controllers: [],
   providers: [],

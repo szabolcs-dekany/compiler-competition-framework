@@ -6,6 +6,8 @@ export interface SubmissionDto {
   teamId: string;
   teamName: string;
   version: number;
+  originalName: string;
+  extension: string;
   compilerPath: string | null;
   status: SubmissionStatus;
   submittedAt: string;

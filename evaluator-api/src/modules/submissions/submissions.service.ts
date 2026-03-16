@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import * as path from 'path';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { TestCasesService } from '../test-cases/test-cases.service';
@@ -6,6 +7,7 @@ import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
 import type { TestRunWithDetailsDto } from '@evaluator/shared';
 import { TestRunStatus } from '@evaluator/shared';
+import { CompileQueueService } from '../job/services/compile-queue.service';
 
 @Injectable()
 export class SubmissionsService {
@@ -13,6 +15,7 @@ export class SubmissionsService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly testCasesService: TestCasesService,
+    private readonly compileQueueService: CompileQueueService,
   ) {}
 
   async create(
@@ -33,10 +36,15 @@ export class SubmissionsService {
     const nextVersion =
       team.submissions.length > 0 ? team.submissions[0].version + 1 : 1;
 
+    const originalName = file.originalname || 'compiler.tar.gz';
+    const extension = path.extname(originalName) || '.tar.gz';
+
     const submission = await this.prisma.submission.create({
       data: {
         teamId: createSubmissionDto.teamId,
         version: nextVersion,
+        originalName,
+        extension,
         compilerPath: null,
       },
       include: {
@@ -48,7 +56,7 @@ export class SubmissionsService {
       },
     });
 
-    const key = `compilers/${createSubmissionDto.teamId}/${submission.id}.tar.gz`;
+    const key = `compilers/${createSubmissionDto.teamId}/${submission.id}${extension}`;
 
     try {
       await this.storage.uploadFile(key, file.buffer, file.mimetype);
@@ -63,6 +71,11 @@ export class SubmissionsService {
             },
           },
         },
+      });
+
+      await this.compileQueueService.dispatchCompileJob({
+        submissionId: submission.id,
+        teamId: team.id,
       });
 
       return {
