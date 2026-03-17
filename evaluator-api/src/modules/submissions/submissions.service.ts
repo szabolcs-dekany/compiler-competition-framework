@@ -36,8 +36,8 @@ export class SubmissionsService {
     const nextVersion =
       team.submissions.length > 0 ? team.submissions[0].version + 1 : 1;
 
-    const originalName = file.originalname || 'compiler.tar.gz';
-    const extension = path.extname(originalName) || '.tar.gz';
+    const originalName = file.originalname || 'compiler';
+    const extension = path.extname(originalName) || '';
 
     const submission = await this.prisma.submission.create({
       data: {

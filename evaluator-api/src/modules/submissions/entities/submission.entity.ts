@@ -14,14 +14,14 @@ export class Submission {
   @ApiProperty({ example: 1 })
   version: number;
 
-  @ApiProperty({ example: 'my-compiler.tar.gz' })
+  @ApiProperty({ example: 'my-compiler.zip' })
   originalName: string;
 
-  @ApiProperty({ example: '.tar.gz' })
+  @ApiProperty({ example: '.zip' })
   extension: string;
 
   @ApiProperty({
-    example: 'compilers/clx456def/clx123abc.tar.gz',
+    example: 'compilers/clx456def/clx123abc.zip',
     nullable: true,
   })
   compilerPath: string | null;

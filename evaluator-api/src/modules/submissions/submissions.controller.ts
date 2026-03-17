@@ -39,7 +39,7 @@ export class SubmissionsController {
         file: {
           type: 'string',
           format: 'binary',
-          description: 'Compiler archive (tar.gz)',
+          description: 'Compiler file',
         },
       },
       required: ['teamId', 'file'],

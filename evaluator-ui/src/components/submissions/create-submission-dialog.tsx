@@ -80,7 +80,7 @@ export function CreateSubmissionDialog({ children }: CreateSubmissionDialogProps
           <DialogHeader>
             <DialogTitle>Submit Compiler</DialogTitle>
             <DialogDescription>
-              Upload a compiler archive for evaluation. Supported format: .tar.gz
+              Upload a compiler for evaluation.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -100,7 +100,7 @@ export function CreateSubmissionDialog({ children }: CreateSubmissionDialogProps
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="file">Compiler Archive</Label>
+              <Label htmlFor="file">Compiler</Label>
               <Input
                 id="file"
                 type="file"

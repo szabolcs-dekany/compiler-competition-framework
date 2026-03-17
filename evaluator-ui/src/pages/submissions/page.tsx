@@ -22,7 +22,7 @@ export function SubmissionsPage() {
 <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle>Build Environments</CardTitle>
+            <CardTitle>Execution Environments</CardTitle>
             <CardDescription>
               {dockerfiles.length} dockerfile{dockerfiles.length !== 1 ? 's' : ''} uploaded
             </CardDescription>

@@ -109,7 +109,7 @@ export function UploadDockerfileDialog({
         <DialogHeader>
           <DialogTitle>{isReplacing ? 'Replace' : 'Upload'} Dockerfile</DialogTitle>
           <DialogDescription>
-            Upload a Dockerfile that defines the build environment for compiling source files.
+            Upload a Dockerfile that defines the execution environment for compiling and running source files.
             The file must be named exactly "{DOCKERFILE_FILENAME}".
           </DialogDescription>
         </DialogHeader>
