@@ -1,7 +1,7 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { CompileJobData } from '../dto/jobs.dto';
+import { CompileJobData } from '../job/dto/jobs.dto';
 
 @Injectable()
 export class CompileQueueService {
@@ -10,7 +10,7 @@ export class CompileQueueService {
   constructor(@InjectQueue('compile') private compileQueue: Queue) {}
 
   async dispatchCompileJob(compileJob: CompileJobData): Promise<string> {
-    const job = await this.compileQueue.add('compile', compileJob, {
+    const job = await this.compileQueue.add('', compileJob, {
       jobId: `compile-${compileJob.submissionId}`,
     });
 

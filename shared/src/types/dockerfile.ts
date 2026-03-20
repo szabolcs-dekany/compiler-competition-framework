@@ -6,6 +6,7 @@ export interface DockerfileDto {
   checksum: string;
   version: number;
   uploadedAt: string;
+  s3Key: string;
 }
 
 export interface DockerfileListDto {

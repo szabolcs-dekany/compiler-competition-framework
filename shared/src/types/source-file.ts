@@ -8,6 +8,7 @@ export interface SourceFileDto {
   checksum: string;
   version: number;
   uploadedAt: string;
+  s3Key: string;
 }
 
 export interface SourceFileVersionDto {

@@ -3,10 +3,10 @@ import { SubmissionsController } from './submissions.controller';
 import { SubmissionsService } from './submissions.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TestCasesService } from '../test-cases/test-cases.service';
-import { JobsModule } from '../job/jobs.module';
+import { QueueModule } from '../queue/queue.module';
 
 @Module({
-  imports: [JobsModule],
+  imports: [QueueModule],
   controllers: [SubmissionsController],
   providers: [SubmissionsService, PrismaService, TestCasesService],
   exports: [SubmissionsService],

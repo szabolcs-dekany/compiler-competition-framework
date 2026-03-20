@@ -7,7 +7,7 @@ import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
 import type { TestRunWithDetailsDto } from '@evaluator/shared';
 import { TestRunStatus } from '@evaluator/shared';
-import { CompileQueueService } from '../job/services/compile-queue.service';
+import { CompileQueueService } from '../queue/compile-queue.service';
 
 @Injectable()
 export class SubmissionsService {
