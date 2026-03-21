@@ -19,7 +19,11 @@ import { PrismaService } from '../../common/prisma/prisma.service';
     DockerModule,
   ],
   controllers: [],
-  providers: [CompileQueueConsumerService, DockerfileQueueConsumerService, PrismaService],
+  providers: [
+    CompileQueueConsumerService,
+    DockerfileQueueConsumerService,
+    PrismaService,
+  ],
   exports: [],
 })
 export class JobsModule {}
