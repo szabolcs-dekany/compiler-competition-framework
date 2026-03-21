@@ -12,6 +12,7 @@ import type {
   DockerfileVersionDto,
 } from '@evaluator/shared';
 import * as crypto from 'crypto';
+import { DockerfileQueueService } from '../queue/dockerfile-queue.service';
 
 const DOCKERFILE_FILENAME = 'Dockerfile';
 
@@ -20,6 +21,7 @@ export class DockerfilesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly dockerfileQueueService: DockerfileQueueService,
   ) {}
 
   async findAll(): Promise<DockerfileListDto[]> {
@@ -121,6 +123,11 @@ export class DockerfilesService {
         size: file.size,
         checksum,
       },
+    });
+
+    await this.dockerfileQueueService.dispatchDockerfileJob({
+      dockerfileId: dockerfile.id,
+      teamId: dto.teamId,
     });
 
     return this.toDto(dockerfile);
@@ -261,6 +268,11 @@ export class DockerfilesService {
         version: newVersion,
         uploadedAt: new Date(),
       },
+    });
+
+    await this.dockerfileQueueService.dispatchDockerfileJob({
+      dockerfileId: updated.id,
+      teamId: existing.teamId,
     });
 
     return this.toDto(updated);

@@ -15,7 +15,7 @@ export class DockerService {
 
     this.docker = new Docker({ socketPath: path });
 
-    await this.verifyConnection();
+    this.verifyConnection();
   }
 
   private async verifyConnection() {

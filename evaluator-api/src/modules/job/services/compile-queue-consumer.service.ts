@@ -46,9 +46,7 @@ export class CompileQueueConsumerService {
       //3. Create a temporary directory which identifies this job
       //4. Save the source files to this temporary directory, into a source-files folder.
       //5. Download and save the submission compiler into a compiler folder inside the temporary directory.
-      //6. Append a copy or add command to the end of the Dockerfile string as that copies the source-files directory
-      //7. Append a copy or add command to the end of the Dockerfile string as that copies the compiler directory
-      //8. Save the modified Dockerfile next to the source-files directory
+      //6. Create an image from the dockerfile and save the image name it into the dockerfile.entity.ts as a new field, you will probably need to do some migration
     } else {
       this.logger.warn(
         `Compile queue job received without available submission: ${compileJob.id}`,

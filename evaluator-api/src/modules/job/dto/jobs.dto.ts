@@ -3,6 +3,11 @@ export interface CompileJobData {
   teamId: string;
 }
 
+export interface DockerBuildJobData {
+  dockerfileId: string;
+  teamId: string;
+}
+
 export interface EvaluateJobData {
   submissionId: string;
   testCaseId: string;
