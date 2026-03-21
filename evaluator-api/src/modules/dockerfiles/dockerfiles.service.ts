@@ -101,6 +101,12 @@ export class DockerfilesService {
         },
       });
 
+      await this.dockerfileQueueService.dispatchDockerfileJob({
+        dockerfileId: updated.id,
+        teamId: dto.teamId,
+        version: version,
+      });
+
       return this.toDto(updated);
     }
 
@@ -128,6 +134,7 @@ export class DockerfilesService {
     await this.dockerfileQueueService.dispatchDockerfileJob({
       dockerfileId: dockerfile.id,
       teamId: dto.teamId,
+      version: version,
     });
 
     return this.toDto(dockerfile);
@@ -273,21 +280,18 @@ export class DockerfilesService {
     await this.dockerfileQueueService.dispatchDockerfileJob({
       dockerfileId: updated.id,
       teamId: existing.teamId,
+      version: newVersion,
     });
 
     return this.toDto(updated);
   }
 
-  async getContent(teamId: string): Promise<Buffer | null> {
-    const dockerfile = await this.prisma.dockerfile.findUnique({
-      where: { teamId },
+  async updateImageName(id: string, imageName: string): Promise<DockerfileDto> {
+    const updated = await this.prisma.dockerfile.update({
+      where: { id },
+      data: { imageName },
     });
-
-    if (!dockerfile) {
-      return null;
-    }
-
-    return this.storage.getFile(dockerfile.s3Key);
+    return this.toDto(updated);
   }
 
   private toDto(df: {
@@ -299,6 +303,7 @@ export class DockerfilesService {
     version: number;
     uploadedAt: Date;
     s3Key: string;
+    imageName?: string | null;
   }): DockerfileDto {
     return {
       id: df.id,
@@ -309,6 +314,7 @@ export class DockerfilesService {
       version: df.version,
       uploadedAt: df.uploadedAt.toISOString(),
       s3Key: df.s3Key,
+      imageName: df.imageName,
     };
   }
 

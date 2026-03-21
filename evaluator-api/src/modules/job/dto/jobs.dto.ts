@@ -6,6 +6,7 @@ export interface CompileJobData {
 export interface DockerBuildJobData {
   dockerfileId: string;
   teamId: string;
+  version: number;
 }
 
 export interface EvaluateJobData {

@@ -12,13 +12,13 @@ export class DockerfileQueueService {
   async dispatchDockerfileJob(
     dockerBuildJobData: DockerBuildJobData,
   ): Promise<string> {
-    const jobId = `compile-${dockerBuildJobData.dockerfileId}-${dockerBuildJobData.teamId}`;
+    const jobId = `dockerfile-${dockerBuildJobData.dockerfileId}-${dockerBuildJobData.teamId}-${dockerBuildJobData.version}`;
     const job = await this.dockerfileQueue.add('', dockerBuildJobData, {
       jobId: jobId,
     });
 
     this.logger.log(`Dispatched Dockerfile build job for submission ${jobId}`);
 
-    return job.id.toString()!;
+    return job.id.toString();
   }
 }

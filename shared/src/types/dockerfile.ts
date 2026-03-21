@@ -7,6 +7,7 @@ export interface DockerfileDto {
   version: number;
   uploadedAt: string;
   s3Key: string;
+  imageName?: string | null;
 }
 
 export interface DockerfileListDto {

@@ -4,6 +4,7 @@ import bull from 'bull';
 import { DockerBuildJobData } from '../dto/jobs.dto';
 import { DockerfilesService } from '../../dockerfiles/dockerfiles.service';
 import { StorageService } from '../../../common/storage/storage.service';
+import { DockerService } from '../../docker/docker.service';
 
 @Processor('dockerfile')
 export class DockerfileQueueConsumerService {
@@ -12,12 +13,13 @@ export class DockerfileQueueConsumerService {
   constructor(
     private readonly dockerfilesService: DockerfilesService,
     private readonly storageService: StorageService,
+    private readonly dockerService: DockerService,
   ) {}
 
-  @Process({ concurrency: 1 })
-  async processDockerBuildJob(compileJob: bull.Job<DockerBuildJobData>) {
+  @Process()
+  async processDockerBuildJob(dockerBuildJob: bull.Job<DockerBuildJobData>) {
     const dockerFile = await this.dockerfilesService.findOne(
-      compileJob.data.dockerfileId,
+      dockerBuildJob.data.dockerfileId,
     );
 
     const s3Url = dockerFile.s3Key;
@@ -28,9 +30,22 @@ export class DockerfileQueueConsumerService {
       );
 
       const dockerfileBuffer = await this.storageService.getFile(s3Url);
+
+      const imageResult = await this.dockerService.buildImage({
+        dockerfileBuffer,
+        version: dockerFile.version,
+        teamId: dockerBuildJob.data.teamId,
+      });
+
+      await this.dockerfilesService.updateImageName(
+        dockerFile.id,
+        imageResult.imageName,
+      );
+
+      this.logger.log(`Built and saved image: ${imageResult.imageName}`);
     } else {
       this.logger.warn(
-        `Compile queue job received without available submission: ${compileJob.id}`,
+        `Compile queue job received without available submission: ${dockerBuildJob.id}`,
       );
     }
   }

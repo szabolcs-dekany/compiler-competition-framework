@@ -20,7 +20,7 @@ export class CompileQueueConsumerService {
     private readonly dockerfilesService: DockerfilesService,
   ) {}
 
-  @Process({ concurrency: 1 })
+  @Process()
   async processCompileJob(compileJob: bull.Job<CompileJobData>) {
     this.logger.debug(`Compile queue job received: ${compileJob.id}`);
     const latestSubmission = await this.getLatestSubmission(

@@ -25,6 +25,7 @@ model Dockerfile {
   checksum      String
   version       Int                 @default(1)
   uploadedAt    DateTime            @default(now())
+  imageName     String?
   versions      DockerfileVersion[]
 
   @@index([teamId])
