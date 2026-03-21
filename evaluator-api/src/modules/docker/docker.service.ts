@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { Container } from 'dockerode';
 import Docker from 'dockerode';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as tar from 'tar-stream';
 import { Readable } from 'stream';
 
@@ -9,6 +10,7 @@ export interface BuildImageParams {
   dockerfileBuffer: Buffer;
   teamId: string;
   version: number;
+  dockerfileId: string;
 }
 
 export interface BuildImageResult {
@@ -34,7 +36,10 @@ export class DockerService {
   private readonly logger = new Logger(DockerService.name);
   private readonly docker: Docker;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {
     const path: string = this.config.get(
       'DOCKER_SOCKET_PATH',
       '/var/run/docker.sock',
@@ -55,7 +60,7 @@ export class DockerService {
   }
 
   async buildImage(params: BuildImageParams): Promise<BuildImageResult> {
-    const { dockerfileBuffer, teamId, version } = params;
+    const { dockerfileBuffer, teamId, version, dockerfileId } = params;
     const imageName = `team-${teamId}:v${version}`;
 
     this.logger.log(`Building Docker image: ${imageName}`);
@@ -65,7 +70,12 @@ export class DockerService {
 
     const stream = await this.docker.buildImage(tarStream, { t: imageName });
 
-    const buildLog = await this.followBuildProgress(stream, imageName);
+    const buildLog = await this.followBuildProgress(
+      stream,
+      imageName,
+      dockerfileId,
+      version,
+    );
 
     this.logger.log(`Successfully built image: ${imageName}`);
 
@@ -179,17 +189,25 @@ export class DockerService {
   private followBuildProgress(
     stream: NodeJS.ReadableStream,
     imageName: string,
+    dockerfileId: string,
+    version: number,
   ): Promise<string[]> {
     return new Promise((resolve, reject) => {
       const buildLog: string[] = [];
+      const eventTopic = `docker-build:${dockerfileId}:${version}`;
 
       this.docker.modem.followProgress(
         stream,
         (err: Error | null) => {
           if (err) {
             this.logger.error(`Build failed for ${imageName}: ${err.message}`);
+            this.eventEmitter.emit(eventTopic, {
+              type: 'error',
+              message: err.message,
+            });
             reject(err);
           } else {
+            this.eventEmitter.emit(eventTopic, { type: 'complete' });
             resolve(buildLog);
           }
         },
@@ -199,11 +217,19 @@ export class DockerService {
             if (message) {
               buildLog.push(message);
               this.logger.debug(`[${imageName}] ${message}`);
+              this.eventEmitter.emit(eventTopic, {
+                type: 'log',
+                message,
+              });
             }
           }
           if (event.error) {
             buildLog.push(`ERROR: ${event.error}`);
             this.logger.error(`[${imageName}] ${event.error}`);
+            this.eventEmitter.emit(eventTopic, {
+              type: 'log',
+              message: `ERROR: ${event.error}`,
+            });
           }
           if (event.status) {
             this.logger.debug(`[${imageName}] ${event.status}`);

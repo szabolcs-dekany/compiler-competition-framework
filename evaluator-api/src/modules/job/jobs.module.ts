@@ -7,6 +7,7 @@ import { QueueModule } from '../queue/queue.module';
 import { StorageModule } from '../../common/storage/storage.module';
 import { DockerModule } from '../docker/docker.module';
 import { DockerfileQueueConsumerService } from './services/dockerfile-queue-consumer.service';
+import { PrismaService } from '../../common/prisma/prisma.service';
 
 @Module({
   imports: [
@@ -18,7 +19,7 @@ import { DockerfileQueueConsumerService } from './services/dockerfile-queue-cons
     DockerModule,
   ],
   controllers: [],
-  providers: [CompileQueueConsumerService, DockerfileQueueConsumerService],
+  providers: [CompileQueueConsumerService, DockerfileQueueConsumerService, PrismaService],
   exports: [],
 })
 export class JobsModule {}

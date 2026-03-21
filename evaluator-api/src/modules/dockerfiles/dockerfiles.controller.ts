@@ -11,6 +11,7 @@ import {
   StreamableFile,
   Header,
   NotFoundException,
+  Sse,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -22,20 +23,32 @@ import {
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  Observable,
+  fromEvent,
+  map,
+  takeUntil,
+  of,
+  concat,
+} from 'rxjs';
 import { DockerfilesService } from './dockerfiles.service';
-import { UploadDockerfileDto } from './dto/upload-dockerfile.dto';
 import { DockerfileEntity } from './entities/dockerfile.entity';
 import { DockerfileVersionEntity } from './entities/dockerfile-version.entity';
 import { DockerfileListEntity } from './entities/dockerfile-list.entity';
 import type {
   DockerfileVersionDto,
   DockerfileListDto,
+  BuildLogEvent,
 } from '@evaluator/shared';
 
 @ApiTags('dockerfiles')
 @Controller('dockerfiles')
 export class DockerfilesController {
-  constructor(private readonly dockerfilesService: DockerfilesService) {}
+  constructor(
+    private readonly dockerfilesService: DockerfilesService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List all Dockerfiles' })
@@ -125,6 +138,62 @@ export class DockerfilesController {
   @ApiResponse({ status: 404, description: 'Dockerfile not found' })
   async getVersions(@Param('id') id: string): Promise<DockerfileVersionDto[]> {
     return this.dockerfilesService.getVersions(id);
+  }
+
+  @Get(':id/versions/:version')
+  @ApiOperation({ summary: 'Get a specific version of a Dockerfile' })
+  @ApiParam({ name: 'id', description: 'Dockerfile ID' })
+  @ApiParam({ name: 'version', description: 'Version number' })
+  @ApiResponse({
+    status: 200,
+    description: 'Version details',
+    type: DockerfileVersionEntity,
+  })
+  @ApiResponse({ status: 404, description: 'Dockerfile or version not found' })
+  async getVersion(
+    @Param('id') id: string,
+    @Param('version') version: string,
+  ): Promise<DockerfileVersionDto> {
+    const versionNum = parseInt(version, 10);
+    return this.dockerfilesService.getVersion(id, versionNum);
+  }
+
+  @Get(':id/versions/:version/logs')
+  @ApiOperation({ summary: 'Get stored build logs for a version' })
+  @ApiParam({ name: 'id', description: 'Dockerfile ID' })
+  @ApiParam({ name: 'version', description: 'Version number' })
+  @ApiResponse({ status: 200, description: 'Build logs' })
+  @ApiResponse({ status: 404, description: 'Logs not found' })
+  async getBuildLogs(
+    @Param('id') id: string,
+    @Param('version') version: string,
+  ): Promise<{ logs: string }> {
+    const versionNum = parseInt(version, 10);
+    const logs = await this.dockerfilesService.getBuildLogs(id, versionNum);
+    return { logs };
+  }
+
+  @Sse(':id/versions/:version/logs/stream')
+  @ApiOperation({ summary: 'Stream build logs via Server-Sent Events' })
+  @ApiParam({ name: 'id', description: 'Dockerfile ID' })
+  @ApiParam({ name: 'version', description: 'Version number' })
+  streamBuildLogs(
+    @Param('id') id: string,
+    @Param('version') version: string,
+  ): Observable<{ data: BuildLogEvent }> {
+    const versionNum = parseInt(version, 10);
+    const eventTopic = `docker-build:${id}:${versionNum}`;
+    const completeTopic = `${eventTopic}:complete`;
+
+    const logStream$ = fromEvent(this.eventEmitter, eventTopic).pipe(
+      map((event: unknown) => ({ data: event as BuildLogEvent })),
+      takeUntil(fromEvent(this.eventEmitter, completeTopic)),
+    );
+
+    return concat(
+      of({ data: { type: 'status', status: 'BUILDING' } as BuildLogEvent }),
+      logStream$,
+    );
   }
 
   @Get(':id/download')

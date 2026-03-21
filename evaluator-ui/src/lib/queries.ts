@@ -99,4 +99,16 @@ export const dockerfileQueries = {
       queryKey: ['dockerfiles', id, 'versions'],
       queryFn: () => dockerfilesApi.getVersions(id),
     }),
+
+  version: (id: string, version: number) =>
+    queryOptions({
+      queryKey: ['dockerfiles', id, 'versions', version],
+      queryFn: () => dockerfilesApi.getVersion(id, version),
+    }),
+
+  buildLogs: (id: string, version: number) =>
+    queryOptions({
+      queryKey: ['dockerfiles', id, 'versions', version, 'logs'],
+      queryFn: () => dockerfilesApi.getBuildLogs(id, version),
+    }),
 };

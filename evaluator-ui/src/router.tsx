@@ -7,6 +7,7 @@ import { TeamsPage } from './pages/teams';
 import { TeamDetailPage } from './pages/teams/[teamId]';
 import { TestCasesPage } from './pages/test-cases';
 import { SubmissionsPage } from './pages/submissions';
+import { DockerfileVersionPage } from './pages/dockerfiles/[dockerfileId]/versions/[version]';
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -66,7 +67,18 @@ const submissionsRoute = createRoute({
   },
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, teamsRoute, teamDetailRoute, testCasesRoute, submissionsRoute]);
+const dockerfileVersionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/dockerfiles/$dockerfileId/versions/$version',
+  component: DockerfileVersionPage,
+  loader: ({ context, params }) => {
+    const version = parseInt(params.version, 10);
+    context.queryClient.ensureQueryData(dockerfileQueries.detail(params.dockerfileId));
+    context.queryClient.ensureQueryData(dockerfileQueries.version(params.dockerfileId, version));
+  },
+});
+
+const routeTree = rootRoute.addChildren([indexRoute, teamsRoute, teamDetailRoute, testCasesRoute, submissionsRoute, dockerfileVersionRoute]);
 
 export const router = createRouter({
   routeTree,

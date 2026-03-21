@@ -183,7 +183,64 @@ export class DockerfilesService {
       size: v.size,
       checksum: v.checksum,
       uploadedAt: v.uploadedAt.toISOString(),
+      buildStatus: v.buildStatus,
+      buildLogS3Key: v.buildLogS3Key,
+      buildStartedAt: v.buildStartedAt?.toISOString() ?? null,
+      buildCompletedAt: v.buildCompletedAt?.toISOString() ?? null,
+      buildError: v.buildError,
     }));
+  }
+
+  async getVersion(
+    dockerfileId: string,
+    version: number,
+  ): Promise<DockerfileVersionDto> {
+    const versionRecord = await this.prisma.dockerfileVersion.findUnique({
+      where: {
+        dockerfileId_version: { dockerfileId, version },
+      },
+    });
+
+    if (!versionRecord) {
+      throw new NotFoundException(
+        `Version ${version} not found for dockerfile ${dockerfileId}`,
+      );
+    }
+
+    return {
+      id: versionRecord.id,
+      dockerfileId: versionRecord.dockerfileId,
+      version: versionRecord.version,
+      size: versionRecord.size,
+      checksum: versionRecord.checksum,
+      uploadedAt: versionRecord.uploadedAt.toISOString(),
+      buildStatus: versionRecord.buildStatus,
+      buildLogS3Key: versionRecord.buildLogS3Key,
+      buildStartedAt: versionRecord.buildStartedAt?.toISOString() ?? null,
+      buildCompletedAt: versionRecord.buildCompletedAt?.toISOString() ?? null,
+      buildError: versionRecord.buildError,
+    };
+  }
+
+  async getBuildLogs(dockerfileId: string, version: number): Promise<string> {
+    const versionRecord = await this.prisma.dockerfileVersion.findUnique({
+      where: {
+        dockerfileId_version: { dockerfileId, version },
+      },
+    });
+
+    if (!versionRecord) {
+      throw new NotFoundException(
+        `Version ${version} not found for dockerfile ${dockerfileId}`,
+      );
+    }
+
+    if (!versionRecord.buildLogS3Key) {
+      throw new NotFoundException(`No build logs available for this version`);
+    }
+
+    const buffer = await this.storage.getFile(versionRecord.buildLogS3Key);
+    return buffer.toString('utf-8');
   }
 
   async download(id: string): Promise<{ buffer: Buffer; fileName: string }> {

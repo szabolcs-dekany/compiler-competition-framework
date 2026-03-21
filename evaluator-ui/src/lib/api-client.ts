@@ -107,6 +107,12 @@ export const dockerfilesApi = {
 
   getVersions: (id: string) => fetchJson<DockerfileVersionDto[]>(`${API_BASE}/dockerfiles/${id}/versions`),
 
+  getVersion: (id: string, version: number) => fetchJson<DockerfileVersionDto>(`${API_BASE}/dockerfiles/${id}/versions/${version}`),
+
+  getBuildLogs: (id: string, version: number) => fetchJson<{ logs: string }>(`${API_BASE}/dockerfiles/${id}/versions/${version}/logs`),
+
+  getBuildLogStreamUrl: (id: string, version: number) => `${API_BASE}/dockerfiles/${id}/versions/${version}/logs/stream`,
+
   download: (id: string) => fetch(`${API_BASE}/dockerfiles/${id}/download`).then((r) => r.blob()),
 
   downloadVersion: (id: string, version: number) => fetch(`${API_BASE}/dockerfiles/${id}/versions/${version}/download`).then((r) => r.blob()),

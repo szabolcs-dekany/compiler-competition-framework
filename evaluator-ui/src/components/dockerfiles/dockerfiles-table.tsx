@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { DockerfileListDto, DockerfileVersionDto } from '@evaluator/shared';
+import { Link } from '@tanstack/react-router';
+import type { DockerfileListDto, DockerfileVersionDto, BuildStatus } from '@evaluator/shared';
 import { dockerfileQueries } from '@/lib/queries';
 import { useDownloadDockerfile } from '@/lib/hooks/use-dockerfiles-mutations';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   Table,
   TableBody,
@@ -12,11 +14,47 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ChevronDown, ChevronRight, Loader2, Download } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, Download, CheckCircle, XCircle, Clock, ExternalLink } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 interface DockerfilesTableProps {
   dockerfiles: DockerfileListDto[];
+}
+
+function BuildStatusBadge({ status }: { status: BuildStatus }) {
+  if (status === 'PENDING') {
+    return (
+      <Badge variant="secondary" className="gap-1">
+        <Clock className="h-3 w-3" />
+        Pending
+      </Badge>
+    );
+  }
+
+  if (status === 'BUILDING') {
+    return (
+      <Badge variant="default" className="gap-1">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Building
+      </Badge>
+    );
+  }
+
+  if (status === 'SUCCESS') {
+    return (
+      <Badge variant="default" className="gap-1 bg-green-600 hover:bg-green-700">
+        <CheckCircle className="h-3 w-3" />
+        Success
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge variant="destructive" className="gap-1">
+      <XCircle className="h-3 w-3" />
+      Failed
+    </Badge>
+  );
 }
 
 function VersionsContent({ dockerfileId }: { dockerfileId: string }) {
@@ -51,30 +89,46 @@ function VersionsContent({ dockerfileId }: { dockerfileId: string }) {
       <TableHeader>
         <TableRow className="border-0 hover:bg-transparent">
           <TableHead className="text-xs text-muted-foreground h-8">Version</TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">Build Status</TableHead>
           <TableHead className="text-xs text-muted-foreground h-8">Size</TableHead>
           <TableHead className="text-xs text-muted-foreground h-8">Checksum</TableHead>
           <TableHead className="text-xs text-muted-foreground h-8">Uploaded</TableHead>
-          <TableHead className="text-xs text-muted-foreground h-8 w-16"></TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8 w-20"></TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {versions.map((v) => (
           <TableRow key={v.id} className="border-0 hover:bg-muted/30">
             <TableCell className="py-2 pl-4">v{v.version}</TableCell>
+            <TableCell className="py-2">
+              <BuildStatusBadge status={v.buildStatus} />
+            </TableCell>
             <TableCell className="py-2">{(v.size / 1024).toFixed(1)} KB</TableCell>
             <TableCell className="py-2 font-mono text-sm">{v.checksum.slice(0, 8)}...</TableCell>
             <TableCell className="py-2 text-muted-foreground text-sm">
               {formatDistanceToNow(new Date(v.uploadedAt), { addSuffix: true })}
             </TableCell>
             <TableCell className="py-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                onClick={() => handleDownload(v)}
-              >
-                <Download className="h-3 w-3" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  asChild
+                >
+                  <Link to="/dockerfiles/$dockerfileId/versions/$version" params={{ dockerfileId, version: String(v.version) }}>
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={() => handleDownload(v)}
+                >
+                  <Download className="h-3 w-3" />
+                </Button>
+              </div>
             </TableCell>
           </TableRow>
         ))}

@@ -32,17 +32,29 @@ model Dockerfile {
 }
 
 model DockerfileVersion {
-  id            String      @id @default(cuid())
-  dockerfileId  String
-  dockerfile    Dockerfile  @relation(fields: [dockerfileId], references: [id], onDelete: Cascade)
-  version       Int
-  s3Key         String
-  size          Int
-  checksum      String
-  uploadedAt    DateTime    @default(now())
+  id               String      @id @default(cuid())
+  dockerfileId     String
+  dockerfile       Dockerfile  @relation(fields: [dockerfileId], references: [id], onDelete: Cascade)
+  version          Int
+  s3Key            String
+  size             Int
+  checksum         String
+  uploadedAt       DateTime    @default(now())
+  buildStatus      BuildStatus @default(PENDING)
+  buildLogS3Key    String?
+  buildStartedAt   DateTime?
+  buildCompletedAt DateTime?
+  buildError       String?
 
   @@unique([dockerfileId, version])
   @@index([dockerfileId])
+}
+
+enum BuildStatus {
+  PENDING
+  BUILDING
+  SUCCESS
+  FAILED
 }
 
 model SourceFile {
