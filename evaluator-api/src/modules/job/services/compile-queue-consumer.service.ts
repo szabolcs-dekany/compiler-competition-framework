@@ -11,6 +11,7 @@ import { Submission } from '@prisma/client';
 import { DockerfileDto } from '@evaluator/shared';
 import { DockerService } from '../../docker/docker.service';
 import { StorageService } from '../../../common/storage/storage.service';
+import { PrismaService } from '../../../common/prisma/prisma.service';
 
 @Processor('compile')
 export class CompileQueueConsumerService {
@@ -22,22 +23,19 @@ export class CompileQueueConsumerService {
     private readonly dockerfilesService: DockerfilesService,
     private readonly dockerService: DockerService,
     private readonly storageService: StorageService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Process()
   async processCompileJob(compileJob: bull.Job<CompileJobData>) {
     this.logger.debug(`Compile queue job received: ${compileJob.id}`);
-    const latestSubmission = await this.getLatestSubmission(
-      compileJob.data.teamId,
-    );
+    const { submissionId, teamId, version } = compileJob.data;
 
-    const latestDockerFile = await this.getLatestDockerfile(
-      compileJob.data.teamId,
-    );
+    const latestSubmission = await this.getLatestSubmission(teamId);
 
-    const sourceFiles = await this.sourceFilesService.findByTeamId(
-      compileJob.data.teamId,
-    );
+    const latestDockerFile = await this.getLatestDockerfile(teamId);
+
+    const sourceFiles = await this.sourceFilesService.findByTeamId(teamId);
 
     if (
       !latestSubmission ||
@@ -59,7 +57,16 @@ export class CompileQueueConsumerService {
       return;
     }
 
+    await this.prisma.submission.update({
+      where: { id: submissionId },
+      data: {
+        compileStatus: 'RUNNING',
+        compileStartedAt: new Date(),
+      },
+    });
+
     const tempDir = path.join(process.cwd(), 'tmp', String(compileJob.id));
+    const compileLogs: string[] = [];
 
     try {
       fs.mkdirSync(tempDir, { recursive: true });
@@ -91,9 +98,12 @@ export class CompileQueueConsumerService {
       }
 
       for (const sourceFile of sourceFiles) {
+        const logPrefix = `[${sourceFile.originalName}]`;
         this.logger.debug(
           `Running source file: ${sourceFile.originalName} with args 6 7`,
         );
+        compileLogs.push(`${logPrefix} Running with args: 6 7`);
+
         const result = await this.dockerService.runContainer({
           imageName,
           command: [
@@ -105,7 +115,23 @@ export class CompileQueueConsumerService {
           ],
           mountPath: tempDir,
           containerPath: '/workspace',
+          submissionId,
+          version,
         });
+
+        if (result.stdout) {
+          const stdoutLines = result.stdout.split('\n').filter((l) => l.trim());
+          for (const line of stdoutLines) {
+            compileLogs.push(`${logPrefix} ${line}`);
+          }
+        }
+        if (result.stderr) {
+          const stderrLines = result.stderr.split('\n').filter((l) => l.trim());
+          for (const line of stderrLines) {
+            compileLogs.push(`${logPrefix} [stderr] ${line}`);
+          }
+        }
+        compileLogs.push(`${logPrefix} Exit code: ${result.exitCode}`);
 
         this.logger.log(
           `Output for ${sourceFile.originalName}:\n` +
@@ -114,6 +140,50 @@ export class CompileQueueConsumerService {
             `  exitCode: ${result.exitCode}`,
         );
       }
+
+      const logS3Key = `compiles/${teamId}/v${version}/compile.log`;
+      await this.storageService.uploadFile(
+        logS3Key,
+        Buffer.from(compileLogs.join('\n')),
+        'text/plain',
+      );
+
+      await this.prisma.submission.update({
+        where: { id: submissionId },
+        data: {
+          compileStatus: 'SUCCESS',
+          compileLogS3Key: logS3Key,
+          compileCompletedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+
+      this.logger.error(
+        `Compile job failed for submission ${submissionId}: ${errorMessage}`,
+      );
+
+      compileLogs.push(`ERROR: ${errorMessage}`);
+
+      const logS3Key = `compiles/${teamId}/v${version}/compile.log`;
+      await this.storageService
+        .uploadFile(
+          logS3Key,
+          Buffer.from(compileLogs.join('\n')),
+          'text/plain',
+        )
+        .catch(() => {});
+
+      await this.prisma.submission.update({
+        where: { id: submissionId },
+        data: {
+          compileStatus: 'FAILED',
+          compileLogS3Key: logS3Key,
+          compileCompletedAt: new Date(),
+          compileError: errorMessage,
+        },
+      });
     } finally {
       if (fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true });

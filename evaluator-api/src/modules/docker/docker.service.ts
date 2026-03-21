@@ -23,6 +23,8 @@ export interface RunContainerParams {
   command: string[];
   mountPath: string;
   containerPath: string;
+  submissionId?: string;
+  version?: number;
 }
 
 export interface RunContainerResult {
@@ -83,7 +85,7 @@ export class DockerService {
   }
 
   async runContainer(params: RunContainerParams): Promise<RunContainerResult> {
-    const { imageName, command, mountPath, containerPath } = params;
+    const { imageName, command, mountPath, containerPath, submissionId, version } = params;
 
     this.logger.debug(
       `Running container ${imageName} with command: ${command.join(' ')}`,
@@ -108,8 +110,25 @@ export class DockerService {
       });
 
       const chunks: Buffer[] = [];
+      const eventTopic = submissionId ? `compile-log:${submissionId}` : null;
+
       await new Promise<void>((resolve, reject) => {
-        stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+        stream.on('data', (chunk: Buffer) => {
+          chunks.push(chunk);
+          if (eventTopic) {
+            const output = chunk.toString('utf-8');
+            const lines = output.split('\n').filter((line) => line.trim());
+            for (const line of lines) {
+              const parsed = this.parseDockerLogLine(line);
+              if (parsed) {
+                this.eventEmitter.emit(eventTopic, {
+                  type: 'log',
+                  message: parsed,
+                });
+              }
+            }
+          }
+        });
         stream.on('end', resolve);
         stream.on('error', reject);
       });
@@ -120,6 +139,10 @@ export class DockerService {
       const exitCode = result.StatusCode ?? -1;
 
       const { stdout, stderr } = this.parseDockerLogs(output);
+
+      if (eventTopic) {
+        this.eventEmitter.emit(`${eventTopic}:complete`);
+      }
 
       this.logger.debug(`Container ${imageName} exited with code ${exitCode}`);
 
@@ -158,6 +181,12 @@ export class DockerService {
       stdout: stdoutLines.join('\n'),
       stderr: stderrLines.join('\n'),
     };
+  }
+
+  private parseDockerLogLine(line: string): string | null {
+    if (line.length === 0) return null;
+    const content = line.slice(8).trim();
+    return content.length > 0 ? content : null;
   }
 
   private async createTarFromDockerfile(

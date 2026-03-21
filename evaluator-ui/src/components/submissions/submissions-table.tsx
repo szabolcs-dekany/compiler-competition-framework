@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import type { SubmissionDto, TestRunWithDetailsDto } from '@evaluator/shared';
 import { SubmissionStatus, TestRunStatus } from '@evaluator/shared';
 import { submissionQueries } from '@/lib/queries';
@@ -13,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, ExternalLink } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -178,6 +179,14 @@ export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
               <TableRow key={`${submission.id}-expanded`}>
                 <TableCell colSpan={6} className="p-0 border-0">
                   <div className="pl-10 pr-4">
+                    <div className="flex justify-end py-2">
+                      <Button variant="outline" size="sm" asChild>
+                        <Link to="/submissions/$submissionId" params={{ submissionId: submission.id }}>
+                          <ExternalLink className="h-4 w-4 mr-1" />
+                          View Details
+                        </Link>
+                      </Button>
+                    </div>
                     <TestRunsContent submissionId={submission.id} />
                   </div>
                 </TableCell>

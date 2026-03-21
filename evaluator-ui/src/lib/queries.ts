@@ -53,6 +53,12 @@ export const submissionQueries = {
       queryKey: ['submissions', submissionId, 'test-runs'],
       queryFn: () => submissionsApi.testRuns(submissionId),
     }),
+  
+  compileLogs: (id: string) =>
+    queryOptions({
+      queryKey: ['submissions', id, 'compile-logs'],
+      queryFn: () => submissionsApi.getCompileLogs(id),
+    }),
 };
 
 export const sourceFileQueries = {

@@ -8,6 +8,7 @@ import {
   UploadedFile,
   NotFoundException,
   BadRequestException,
+  Sse,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -18,7 +19,16 @@ import {
   ApiConsumes,
   ApiBody,
 } from '@nestjs/swagger';
-import type { TestRunWithDetailsDto } from '@evaluator/shared';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  Observable,
+  fromEvent,
+  map,
+  takeUntil,
+  of,
+  concat,
+} from 'rxjs';
+import type { TestRunWithDetailsDto, CompileLogEvent } from '@evaluator/shared';
 import { SubmissionsService } from './submissions.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
@@ -26,7 +36,10 @@ import { Submission } from './entities/submission.entity';
 @ApiTags('submissions')
 @Controller('submissions')
 export class SubmissionsController {
-  constructor(private readonly submissionsService: SubmissionsService) {}
+  constructor(
+    private readonly submissionsService: SubmissionsService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Submit a compiler for a team' })
@@ -97,6 +110,35 @@ export class SubmissionsController {
   @ApiResponse({ status: 404, description: 'Submission not found' })
   findTestRuns(@Param('id') id: string): Promise<TestRunWithDetailsDto[]> {
     return this.submissionsService.findTestRuns(id);
+  }
+
+  @Get(':id/compile-logs')
+  @ApiOperation({ summary: 'Get stored compile logs for a submission' })
+  @ApiParam({ name: 'id', description: 'Submission ID' })
+  @ApiResponse({ status: 200, description: 'Compile logs' })
+  @ApiResponse({ status: 404, description: 'Logs not found' })
+  async getCompileLogs(@Param('id') id: string): Promise<{ logs: string }> {
+    const logs = await this.submissionsService.getCompileLogs(id);
+    return { logs };
+  }
+
+  @Sse(':id/compile-logs/stream')
+  @ApiOperation({ summary: 'Stream compile logs via Server-Sent Events' })
+  @ApiParam({ name: 'id', description: 'Submission ID' })
+  streamCompileLogs(@Param('id') id: string): Observable<{ data: CompileLogEvent }> {
+    const submission = this.submissionsService.findOne(id);
+    const eventTopic = `compile-log:${id}`;
+    const completeTopic = `${eventTopic}:complete`;
+
+    const logStream$ = fromEvent(this.eventEmitter, eventTopic).pipe(
+      map((event: unknown) => ({ data: event as CompileLogEvent })),
+      takeUntil(fromEvent(this.eventEmitter, completeTopic)),
+    );
+
+    return concat(
+      of({ data: { type: 'status', status: 'RUNNING' } as CompileLogEvent }),
+      logStream$,
+    );
   }
 
   @Get(':id')

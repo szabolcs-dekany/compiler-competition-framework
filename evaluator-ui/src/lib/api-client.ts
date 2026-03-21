@@ -51,6 +51,10 @@ export const submissionsApi = {
   
   testRuns: (submissionId: string) => fetchJson<TestRunWithDetailsDto[]>(`${API_BASE}/submissions/${submissionId}/test-runs`),
   
+  getCompileLogs: (id: string) => fetchJson<{ logs: string }>(`${API_BASE}/submissions/${id}/compile-logs`),
+  
+  getCompileLogStreamUrl: (id: string) => `${API_BASE}/submissions/${id}/compile-logs/stream`,
+  
   create: (data: CreateSubmissionDto, file: File) => {
     const formData = new FormData();
     formData.append('teamId', data.teamId);

@@ -90,17 +90,24 @@ model SourceFileVersion {
 }
 
 model Submission {
-  id            String           @id @default(cuid())
-  teamId        String
-  team          Team             @relation(fields: [teamId], references: [id])
-  version       Int              @default(1)
-  originalName  String
-  extension     String
-  compilerPath  String?
-  status        SubmissionStatus @default(PENDING)
-  submittedAt   DateTime         @default(now())
-  testRuns      TestRun[]
-  totalScore    Int              @default(0)
+  id                String           @id @default(cuid())
+  teamId            String
+  team              Team             @relation(fields: [teamId], references: [id])
+  version           Int              @default(1)
+  originalName      String
+  extension         String
+  compilerPath      String?
+  status            SubmissionStatus @default(PENDING)
+  submittedAt       DateTime         @default(now())
+  testRuns          TestRun[]
+  totalScore        Int              @default(0)
+  compileStatus     CompileStatus    @default(PENDING)
+  compileLogS3Key   String?
+  compileStartedAt  DateTime?
+  compileCompletedAt DateTime?
+  compileError      String?
+
+  @@unique([teamId, version])
 }
 
 model TestRun {
@@ -134,6 +141,13 @@ enum SubmissionStatus {
   READY
   EVALUATING
   COMPLETED
+  FAILED
+}
+
+enum CompileStatus {
+  PENDING
+  RUNNING
+  SUCCESS
   FAILED
 }
 
