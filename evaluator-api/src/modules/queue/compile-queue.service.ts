@@ -11,7 +11,7 @@ export class CompileQueueService {
 
   async dispatchCompileJob(compileJob: CompileJobData): Promise<string> {
     const job = await this.compileQueue.add('', compileJob, {
-      jobId: `compile-${compileJob.submissionId}`,
+      jobId: `compile-${compileJob.submissionId}-${compileJob.teamId}-${compileJob.version}`,
     });
 
     this.logger.log(

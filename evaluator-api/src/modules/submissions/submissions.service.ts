@@ -76,6 +76,7 @@ export class SubmissionsService {
       await this.compileQueueService.dispatchCompileJob({
         submissionId: submission.id,
         teamId: team.id,
+        version: nextVersion,
       });
 
       return {

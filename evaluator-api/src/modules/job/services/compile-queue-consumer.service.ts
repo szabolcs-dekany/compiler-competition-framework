@@ -8,6 +8,8 @@ import { DockerfilesService } from '../../dockerfiles/dockerfiles.service';
 import * as Docker from 'dockerode';
 import { Submission } from '@prisma/client';
 import { DockerfileDto } from '@evaluator/shared';
+import { DockerService } from '../../docker/docker.service';
+import { StorageService } from '../../../common/storage/storage.service';
 
 @Processor('compile')
 export class CompileQueueConsumerService {
@@ -18,6 +20,8 @@ export class CompileQueueConsumerService {
     private readonly submissionsService: SubmissionsService,
     private readonly sourceFilesService: SourceFilesService,
     private readonly dockerfilesService: DockerfilesService,
+    private readonly dockerService: DockerService,
+    private readonly storageService: StorageService,
   ) {}
 
   @Process()
@@ -41,12 +45,15 @@ export class CompileQueueConsumerService {
       sourceFiles &&
       sourceFiles.length > 0
     ) {
-      //1. Read the dockerfile contents as a string
-      //2. Get the latest source file for each testCaseId
-      //3. Create a temporary directory which identifies this job
-      //4. Save the source files to this temporary directory, into a source-files folder.
-      //5. Download and save the submission compiler into a compiler folder inside the temporary directory.
-      //6. Create an image from the dockerfile and save the image name it into the dockerfile.entity.ts as a new field, you will probably need to do some migration
+      const temporaryFolder = `tmp/${compileJob.id}`;
+      for (const sourceFile of sourceFiles) {
+        this.logger.debug(
+          `Downloading source file: ${sourceFile.s3Key} to temporary folder`,
+        );
+        const sourceFileBuffer = this.storageService.getFile(sourceFile.s3Key);
+        const imageName = latestDockerFile.imageName;
+        const commandToRun = '';
+      }
     } else {
       this.logger.warn(
         `Compile queue job received without available submission: ${compileJob.id}`,
