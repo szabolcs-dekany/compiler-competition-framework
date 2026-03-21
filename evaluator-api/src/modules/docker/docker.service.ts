@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { Container } from 'dockerode';
 import Docker from 'dockerode';
 import { ConfigService } from '@nestjs/config';
 import * as tar from 'tar-stream';
@@ -13,6 +14,19 @@ export interface BuildImageParams {
 export interface BuildImageResult {
   imageName: string;
   buildLog: string[];
+}
+
+export interface RunContainerParams {
+  imageName: string;
+  command: string[];
+  mountPath: string;
+  containerPath: string;
+}
+
+export interface RunContainerResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
 }
 
 @Injectable()
@@ -56,6 +70,84 @@ export class DockerService {
     this.logger.log(`Successfully built image: ${imageName}`);
 
     return { imageName, buildLog };
+  }
+
+  async runContainer(params: RunContainerParams): Promise<RunContainerResult> {
+    const { imageName, command, mountPath, containerPath } = params;
+
+    this.logger.debug(
+      `Running container ${imageName} with command: ${command.join(' ')}`,
+    );
+
+    const container: Container = await this.docker.createContainer({
+      Image: imageName,
+      Cmd: command,
+      WorkingDir: containerPath,
+      HostConfig: {
+        Binds: [`${mountPath}:${containerPath}`],
+      },
+    });
+
+    try {
+      await container.start();
+
+      const stream = await container.logs({
+        stdout: true,
+        stderr: true,
+        follow: true,
+      });
+
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+        stream.on('end', resolve);
+        stream.on('error', reject);
+      });
+
+      const output = Buffer.concat(chunks).toString('utf-8');
+
+      const result = (await container.wait()) as { StatusCode?: number };
+      const exitCode = result.StatusCode ?? -1;
+
+      const { stdout, stderr } = this.parseDockerLogs(output);
+
+      this.logger.debug(`Container ${imageName} exited with code ${exitCode}`);
+
+      return { stdout, stderr, exitCode };
+    } finally {
+      await container.remove().catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        this.logger.warn(`Failed to remove container: ${message}`);
+      });
+    }
+  }
+
+  private parseDockerLogs(output: string): { stdout: string; stderr: string } {
+    const stdoutLines: string[] = [];
+    const stderrLines: string[] = [];
+    const lines = output.split('\n');
+
+    for (const line of lines) {
+      if (line.length === 0) continue;
+
+      const streamType = line.charCodeAt(0);
+      const content = line.slice(8).trim();
+
+      if (content.length === 0) continue;
+
+      if (streamType === 1) {
+        stdoutLines.push(content);
+      } else if (streamType === 2) {
+        stderrLines.push(content);
+      } else {
+        stdoutLines.push(content);
+      }
+    }
+
+    return {
+      stdout: stdoutLines.join('\n'),
+      stderr: stderrLines.join('\n'),
+    };
   }
 
   private async createTarFromDockerfile(
