@@ -5,11 +5,12 @@ import { TestCasesService } from '../test-cases/test-cases.service';
 import { UploadSourceFileDto } from './dto/upload-source-file.dto';
 import type {
   SourceFileDto,
-  SourceFileVersionDto,
   SourceFileListDto,
+  SourceFileVersionDto,
   SourceFileWithTestDetails,
 } from '@evaluator/shared';
 import * as crypto from 'crypto';
+import { SourceFile } from '@prisma/client';
 
 @Injectable()
 export class SourceFilesService {
@@ -284,6 +285,13 @@ export class SourceFilesService {
 
     return sourceFile ? this.toDto(sourceFile) : null;
   }
+  async findByTeamId(teamId: string): Promise<SourceFile[] | null> {
+    const sourceFile = await this.prisma.sourceFile.findMany({
+      where: { teamId },
+    });
+
+    return sourceFile ? sourceFile : null;
+  }
 
   async getContent(teamId: string, testCaseId: string): Promise<Buffer | null> {
     const sourceFile = await this.prisma.sourceFile.findUnique({
@@ -308,6 +316,7 @@ export class SourceFilesService {
     size: number;
     checksum: string;
     version: number;
+    s3Key: string;
     uploadedAt: Date;
   }): SourceFileDto {
     return {
@@ -319,6 +328,7 @@ export class SourceFilesService {
       size: sf.size,
       checksum: sf.checksum,
       version: sf.version,
+      s3Key: sf.s3Key,
       uploadedAt: sf.uploadedAt.toISOString(),
     };
   }

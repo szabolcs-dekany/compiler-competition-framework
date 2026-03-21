@@ -1,15 +1,15 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
-  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { UploadDockerfileDto } from './dto/upload-dockerfile.dto';
 import type {
   DockerfileDto,
-  DockerfileVersionDto,
   DockerfileListDto,
+  DockerfileVersionDto,
 } from '@evaluator/shared';
 import * as crypto from 'crypto';
 
@@ -37,6 +37,16 @@ export class DockerfilesService {
       version: df.version,
       uploadedAt: df.uploadedAt.toISOString(),
     }));
+  }
+
+  async findAllByTeamId(teamId: string): Promise<DockerfileDto[]> {
+    const dockerfiles = await this.prisma.dockerfile.findMany({
+      where: { teamId: teamId },
+      include: { team: true },
+      orderBy: { uploadedAt: 'desc' },
+    });
+
+    return dockerfiles.map((df) => this.toDto(df));
   }
 
   async create(
@@ -276,6 +286,7 @@ export class DockerfilesService {
     checksum: string;
     version: number;
     uploadedAt: Date;
+    s3Key: string;
   }): DockerfileDto {
     return {
       id: df.id,
@@ -285,6 +296,7 @@ export class DockerfilesService {
       checksum: df.checksum,
       version: df.version,
       uploadedAt: df.uploadedAt.toISOString(),
+      s3Key: df.s3Key,
     };
   }
 
