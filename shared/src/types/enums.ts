@@ -16,3 +16,10 @@ export enum TestRunStatus {
   TIMEOUT = 'TIMEOUT',
   ERROR = 'ERROR',
 }
+
+export enum CompileStatus {
+  PENDING = 'PENDING',
+  RUNNING = 'RUNNING',
+  SUCCESS = 'SUCCESS',
+  FAILED = 'FAILED',
+}

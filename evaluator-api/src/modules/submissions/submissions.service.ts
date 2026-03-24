@@ -76,6 +76,7 @@ export class SubmissionsService {
       await this.compileQueueService.dispatchCompileJob({
         submissionId: submission.id,
         teamId: team.id,
+        version: nextVersion,
       });
 
       return {
@@ -230,5 +231,26 @@ export class SubmissionsService {
         },
       };
     });
+  }
+
+  async getCompileLogs(submissionId: string): Promise<string> {
+    const submission = await this.prisma.submission.findUnique({
+      where: { id: submissionId },
+    });
+
+    if (!submission) {
+      throw new NotFoundException(
+        `Submission with id ${submissionId} not found`,
+      );
+    }
+
+    if (!submission.compileLogS3Key) {
+      throw new NotFoundException(
+        `No compile logs found for submission ${submissionId}`,
+      );
+    }
+
+    const logBuffer = await this.storage.getFile(submission.compileLogS3Key);
+    return logBuffer.toString('utf-8');
   }
 }

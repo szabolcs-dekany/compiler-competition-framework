@@ -51,6 +51,10 @@ export const submissionsApi = {
   
   testRuns: (submissionId: string) => fetchJson<TestRunWithDetailsDto[]>(`${API_BASE}/submissions/${submissionId}/test-runs`),
   
+  getCompileLogs: (id: string) => fetchJson<{ logs: string }>(`${API_BASE}/submissions/${id}/compile-logs`),
+  
+  getCompileLogStreamUrl: (id: string) => `${API_BASE}/submissions/${id}/compile-logs/stream`,
+  
   create: (data: CreateSubmissionDto, file: File) => {
     const formData = new FormData();
     formData.append('teamId', data.teamId);
@@ -106,6 +110,12 @@ export const dockerfilesApi = {
   getById: (id: string) => fetchJson<DockerfileDto>(`${API_BASE}/dockerfiles/${id}`),
 
   getVersions: (id: string) => fetchJson<DockerfileVersionDto[]>(`${API_BASE}/dockerfiles/${id}/versions`),
+
+  getVersion: (id: string, version: number) => fetchJson<DockerfileVersionDto>(`${API_BASE}/dockerfiles/${id}/versions/${version}`),
+
+  getBuildLogs: (id: string, version: number) => fetchJson<{ logs: string }>(`${API_BASE}/dockerfiles/${id}/versions/${version}/logs`),
+
+  getBuildLogStreamUrl: (id: string, version: number) => `${API_BASE}/dockerfiles/${id}/versions/${version}/logs/stream`,
 
   download: (id: string) => fetch(`${API_BASE}/dockerfiles/${id}/download`).then((r) => r.blob()),
 

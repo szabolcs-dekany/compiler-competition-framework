@@ -53,6 +53,12 @@ export const submissionQueries = {
       queryKey: ['submissions', submissionId, 'test-runs'],
       queryFn: () => submissionsApi.testRuns(submissionId),
     }),
+  
+  compileLogs: (id: string) =>
+    queryOptions({
+      queryKey: ['submissions', id, 'compile-logs'],
+      queryFn: () => submissionsApi.getCompileLogs(id),
+    }),
 };
 
 export const sourceFileQueries = {
@@ -98,5 +104,17 @@ export const dockerfileQueries = {
     queryOptions({
       queryKey: ['dockerfiles', id, 'versions'],
       queryFn: () => dockerfilesApi.getVersions(id),
+    }),
+
+  version: (id: string, version: number) =>
+    queryOptions({
+      queryKey: ['dockerfiles', id, 'versions', version],
+      queryFn: () => dockerfilesApi.getVersion(id, version),
+    }),
+
+  buildLogs: (id: string, version: number) =>
+    queryOptions({
+      queryKey: ['dockerfiles', id, 'versions', version, 'logs'],
+      queryFn: () => dockerfilesApi.getBuildLogs(id, version),
     }),
 };

@@ -25,23 +25,36 @@ model Dockerfile {
   checksum      String
   version       Int                 @default(1)
   uploadedAt    DateTime            @default(now())
+  imageName     String?
   versions      DockerfileVersion[]
 
   @@index([teamId])
 }
 
 model DockerfileVersion {
-  id            String      @id @default(cuid())
-  dockerfileId  String
-  dockerfile    Dockerfile  @relation(fields: [dockerfileId], references: [id], onDelete: Cascade)
-  version       Int
-  s3Key         String
-  size          Int
-  checksum      String
-  uploadedAt    DateTime    @default(now())
+  id               String      @id @default(cuid())
+  dockerfileId     String
+  dockerfile       Dockerfile  @relation(fields: [dockerfileId], references: [id], onDelete: Cascade)
+  version          Int
+  s3Key            String
+  size             Int
+  checksum         String
+  uploadedAt       DateTime    @default(now())
+  buildStatus      BuildStatus @default(PENDING)
+  buildLogS3Key    String?
+  buildStartedAt   DateTime?
+  buildCompletedAt DateTime?
+  buildError       String?
 
   @@unique([dockerfileId, version])
   @@index([dockerfileId])
+}
+
+enum BuildStatus {
+  PENDING
+  BUILDING
+  SUCCESS
+  FAILED
 }
 
 model SourceFile {
@@ -77,17 +90,24 @@ model SourceFileVersion {
 }
 
 model Submission {
-  id            String           @id @default(cuid())
-  teamId        String
-  team          Team             @relation(fields: [teamId], references: [id])
-  version       Int              @default(1)
-  originalName  String
-  extension     String
-  compilerPath  String?
-  status        SubmissionStatus @default(PENDING)
-  submittedAt   DateTime         @default(now())
-  testRuns      TestRun[]
-  totalScore    Int              @default(0)
+  id                String           @id @default(cuid())
+  teamId            String
+  team              Team             @relation(fields: [teamId], references: [id])
+  version           Int              @default(1)
+  originalName      String
+  extension         String
+  compilerPath      String?
+  status            SubmissionStatus @default(PENDING)
+  submittedAt       DateTime         @default(now())
+  testRuns          TestRun[]
+  totalScore        Int              @default(0)
+  compileStatus     CompileStatus    @default(PENDING)
+  compileLogS3Key   String?
+  compileStartedAt  DateTime?
+  compileCompletedAt DateTime?
+  compileError      String?
+
+  @@unique([teamId, version])
 }
 
 model TestRun {
@@ -121,6 +141,13 @@ enum SubmissionStatus {
   READY
   EVALUATING
   COMPLETED
+  FAILED
+}
+
+enum CompileStatus {
+  PENDING
+  RUNNING
+  SUCCESS
   FAILED
 }
 

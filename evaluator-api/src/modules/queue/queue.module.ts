@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bull';
 import { CompileQueueService } from './compile-queue.service';
+import { DockerfileQueueService } from './dockerfile-queue.service';
 
 @Module({
   imports: [
@@ -43,9 +44,18 @@ import { CompileQueueService } from './compile-queue.service';
           removeOnFail: 500,
         },
       },
+      {
+        name: 'dockerfile',
+        defaultJobOptions: {
+          attempts: 2,
+          backoff: { type: 'exponential', delay: 1000 },
+          removeOnComplete: 100,
+          removeOnFail: 500,
+        },
+      },
     ),
   ],
-  providers: [CompileQueueService],
-  exports: [CompileQueueService],
+  providers: [CompileQueueService, DockerfileQueueService],
+  exports: [CompileQueueService, DockerfileQueueService],
 })
 export class QueueModule {}
