@@ -19,6 +19,22 @@ export interface TestCase {
   points: number;
   performance_bonus: boolean;
   performance_threshold_ms: number | null;
+  generator?: {
+    runs: number;
+    seed: 'deterministic' | 'random';
+    inputs: Array<{
+      var: string;
+      type: 'int' | 'float' | 'string' | 'choice';
+      min?: number;
+      max?: number;
+      choices?: string[];
+      length?: number;
+    }>;
+    stdin: string;
+    expected_stdout?: string;
+    validator?: string;
+    expected_exit_code?: number;
+  };
 }
 
 @Injectable()

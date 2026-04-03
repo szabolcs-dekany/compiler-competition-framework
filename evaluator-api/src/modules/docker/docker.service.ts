@@ -85,7 +85,14 @@ export class DockerService {
   }
 
   async runContainer(params: RunContainerParams): Promise<RunContainerResult> {
-    const { imageName, command, mountPath, containerPath, submissionId, version } = params;
+    const {
+      imageName,
+      command,
+      mountPath,
+      containerPath,
+      submissionId,
+      version,
+    } = params;
 
     this.logger.debug(
       `Running container ${imageName} with command: ${command.join(' ')}`,

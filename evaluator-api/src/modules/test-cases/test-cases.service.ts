@@ -4,33 +4,68 @@ import {
   TestCase,
 } from '../../common/test-case-loader/test-case-loader.service';
 
-export type TestCaseBlueprint = Omit<
-  TestCase,
-  'expected_stdout' | 'expected_exit_code'
->;
+interface TestCaseBlueprint {
+  id: string;
+  category: string;
+  name: string;
+  description: string;
+  difficulty: 1 | 2 | 3;
+  args: string[];
+  stdin: string | null;
+  timeout_ms: number;
+  max_memory_mb: number;
+  points: number;
+  performance_bonus: boolean;
+  performance_threshold_ms: number | null;
+  hasGenerator: boolean;
+  generatorInfo: {
+    runs: number;
+    seed: 'deterministic' | 'random';
+    inputs: Array<{
+      var: string;
+      type: 'int' | 'float' | 'string' | 'choice';
+      min?: number;
+      max?: number;
+      choices?: string[];
+      length?: number;
+    }>;
+  } | null;
+}
 
 @Injectable()
 export class TestCasesService {
   constructor(private readonly testCaseLoader: TestCaseLoaderService) {}
 
+  private toBlueprint(tc: TestCase): TestCaseBlueprint {
+    return {
+      id: tc.id,
+      category: tc.category,
+      name: tc.name,
+      description: tc.description,
+      difficulty: tc.difficulty,
+      args: tc.args,
+      stdin: tc.stdin,
+      timeout_ms: tc.timeout_ms,
+      max_memory_mb: tc.max_memory_mb,
+      points: tc.points,
+      performance_bonus: tc.performance_bonus,
+      performance_threshold_ms: tc.performance_threshold_ms,
+      hasGenerator: !!tc.generator,
+      generatorInfo: tc.generator
+        ? {
+            runs: tc.generator.runs,
+            seed: tc.generator.seed,
+            inputs: tc.generator.inputs,
+          }
+        : null,
+    };
+  }
+
   findAll(): TestCaseBlueprint[] {
     const testCases = this.testCaseLoader.getAll();
 
     return testCases
-      .map((tc) => ({
-        id: tc.id,
-        category: tc.category,
-        name: tc.name,
-        description: tc.description,
-        difficulty: tc.difficulty,
-        args: tc.args,
-        stdin: tc.stdin,
-        timeout_ms: tc.timeout_ms,
-        max_memory_mb: tc.max_memory_mb,
-        points: tc.points,
-        performance_bonus: tc.performance_bonus,
-        performance_threshold_ms: tc.performance_threshold_ms,
-      }))
+      .map((tc) => this.toBlueprint(tc))
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
@@ -41,20 +76,7 @@ export class TestCasesService {
       throw new NotFoundException(`Test case with id ${id} not found`);
     }
 
-    return {
-      id: testCase.id,
-      category: testCase.category,
-      name: testCase.name,
-      description: testCase.description,
-      difficulty: testCase.difficulty,
-      args: testCase.args,
-      stdin: testCase.stdin,
-      timeout_ms: testCase.timeout_ms,
-      max_memory_mb: testCase.max_memory_mb,
-      points: testCase.points,
-      performance_bonus: testCase.performance_bonus,
-      performance_threshold_ms: testCase.performance_threshold_ms,
-    };
+    return this.toBlueprint(testCase);
   }
 
   getFullTestCase(id: string): TestCase {

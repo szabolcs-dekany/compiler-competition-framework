@@ -1,4 +1,5 @@
 import type { TestCaseBlueprint } from '@evaluator/shared';
+import { Link } from '@tanstack/react-router';
 import { Badge } from '@/components/ui/badge';
 import {
   Table,
@@ -52,12 +53,25 @@ export function TestCasesTable({ testCases }: TestCasesTableProps) {
           <TableRow key={testCase.id}>
             <TableCell className="font-mono text-sm">{testCase.id}</TableCell>
             <TableCell>
-              <div>
-                <div className="font-medium">{testCase.name}</div>
-                <div className="text-sm text-muted-foreground max-w-md truncate">
-                  {testCase.description}
+              <Link
+                to="/test-cases/$testCaseId"
+                params={{ testCaseId: testCase.id }}
+                className="block hover:underline"
+              >
+                <div>
+                  <div className="font-medium flex items-center gap-2">
+                    {testCase.name}
+                    {testCase.hasGenerator && (
+                      <Badge variant="outline" className="bg-purple-500/10 text-purple-500 border-purple-500/20 text-xs">
+                        Randomized
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-sm text-muted-foreground max-w-md truncate">
+                    {testCase.description}
+                  </div>
                 </div>
-              </div>
+              </Link>
             </TableCell>
             <TableCell>
               <Badge variant="secondary">{testCase.category}</Badge>

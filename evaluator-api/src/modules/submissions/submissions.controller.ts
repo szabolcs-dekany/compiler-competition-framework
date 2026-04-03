@@ -20,14 +20,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import {
-  Observable,
-  fromEvent,
-  map,
-  takeUntil,
-  of,
-  concat,
-} from 'rxjs';
+import { Observable, fromEvent, map, takeUntil, of, concat } from 'rxjs';
 import type { TestRunWithDetailsDto, CompileLogEvent } from '@evaluator/shared';
 import { SubmissionsService } from './submissions.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
@@ -125,7 +118,9 @@ export class SubmissionsController {
   @Sse(':id/compile-logs/stream')
   @ApiOperation({ summary: 'Stream compile logs via Server-Sent Events' })
   @ApiParam({ name: 'id', description: 'Submission ID' })
-  streamCompileLogs(@Param('id') id: string): Observable<{ data: CompileLogEvent }> {
+  streamCompileLogs(
+    @Param('id') id: string,
+  ): Observable<{ data: CompileLogEvent }> {
     const submission = this.submissionsService.findOne(id);
     const eventTopic = `compile-log:${id}`;
     const completeTopic = `${eventTopic}:complete`;

@@ -1,16 +1,27 @@
 id: TC001
 category: arithmetic
 name: Integer Addition
-description: Add two positive integers and print result
-difficulty: 1
+description: Add two random positive integers and print result
+difficulty: 2
 args: []
-stdin: |
-  15
-  27
-expected_stdout: "42"
-expected_exit_code: 0
 timeout_ms: 5000
 max_memory_mb: 256
 points: 10
 performance_bonus: true
 performance_threshold_ms: 100
+
+generator:
+  runs: 3
+  seed: deterministic
+  inputs:
+    - var: a
+      type: int
+      min: 1
+      max: 1000
+    - var: b
+      type: int
+      min: 1
+      max: 1000
+  stdin: "${a}\n${b}"
+  expected_stdout: "${a + b}"
+  expected_exit_code: 0

@@ -24,14 +24,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import {
-  Observable,
-  fromEvent,
-  map,
-  takeUntil,
-  of,
-  concat,
-} from 'rxjs';
+import { Observable, fromEvent, map, takeUntil, of, concat } from 'rxjs';
 import { DockerfilesService } from './dockerfiles.service';
 import { DockerfileEntity } from './entities/dockerfile.entity';
 import { DockerfileVersionEntity } from './entities/dockerfile-version.entity';

@@ -168,11 +168,7 @@ export class CompileQueueConsumerService {
 
       const logS3Key = `compiles/${teamId}/v${version}/compile.log`;
       await this.storageService
-        .uploadFile(
-          logS3Key,
-          Buffer.from(compileLogs.join('\n')),
-          'text/plain',
-        )
+        .uploadFile(logS3Key, Buffer.from(compileLogs.join('\n')), 'text/plain')
         .catch(() => {});
 
       await this.prisma.submission.update({
