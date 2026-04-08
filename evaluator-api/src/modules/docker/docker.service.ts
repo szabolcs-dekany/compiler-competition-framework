@@ -25,6 +25,7 @@ export interface RunContainerParams {
   containerPath: string;
   submissionId?: string;
   version?: number;
+  timeoutMs?: number;
 }
 
 export interface RunContainerResult {
@@ -91,7 +92,7 @@ export class DockerService {
       mountPath,
       containerPath,
       submissionId,
-      version,
+      timeoutMs,
     } = params;
 
     this.logger.debug(
@@ -107,8 +108,25 @@ export class DockerService {
       },
     });
 
+    let timeoutId: NodeJS.Timeout | undefined;
+    let timedOut = false;
+
     try {
       await container.start();
+
+      if (timeoutMs) {
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          this.logger.warn(
+            `Container ${imageName} timed out after ${timeoutMs}ms, killing...`,
+          );
+          container.kill().catch((err) => {
+            const errorMessage =
+              err instanceof Error ? err.message : 'Unknown error';
+            this.logger.error(`Failed to kill container: ${errorMessage}`);
+          });
+        }, timeoutMs);
+      }
 
       const stream = await container.logs({
         stdout: true,
@@ -143,7 +161,7 @@ export class DockerService {
       const output = Buffer.concat(chunks).toString('utf-8');
 
       const result = (await container.wait()) as { StatusCode?: number };
-      const exitCode = result.StatusCode ?? -1;
+      const exitCode = timedOut ? -1 : (result.StatusCode ?? -1);
 
       const { stdout, stderr } = this.parseDockerLogs(output);
 
@@ -153,8 +171,17 @@ export class DockerService {
 
       this.logger.debug(`Container ${imageName} exited with code ${exitCode}`);
 
-      return { stdout, stderr, exitCode };
+      return {
+        stdout,
+        stderr: timedOut
+          ? `${stderr}\n[TIMEOUT] Execution exceeded ${timeoutMs}ms`.trim()
+          : stderr,
+        exitCode,
+      };
     } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       await container.remove().catch((err: unknown) => {
         const message = err instanceof Error ? err.message : 'Unknown error';
         this.logger.warn(`Failed to remove container: ${message}`);

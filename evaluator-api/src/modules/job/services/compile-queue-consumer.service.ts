@@ -8,10 +8,34 @@ import { SubmissionsService } from '../../submissions/submissions.service';
 import { SourceFilesService } from '../../source-files/source-files.service';
 import { DockerfilesService } from '../../dockerfiles/dockerfiles.service';
 import { Submission } from '@prisma/client';
-import { DockerfileDto } from '@evaluator/shared';
+import { DockerfileDto, SourceFileDto } from '@evaluator/shared';
 import { DockerService } from '../../docker/docker.service';
 import { StorageService } from '../../../common/storage/storage.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { ConfigService } from '@nestjs/config';
+
+interface CompilationContext {
+  submissionId: string;
+  teamId: string;
+  version: number;
+  jobId: string;
+  tempDir: string;
+  compileLogs: string[];
+}
+
+interface CompilationResult {
+  success: boolean;
+  compileTimeMs: number;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+interface CompiledFileInfo {
+  sourceFileId: string;
+  testCaseId: string;
+  compiledS3Key: string;
+}
 
 @Processor('compile')
 export class CompileQueueConsumerService {
@@ -24,39 +48,88 @@ export class CompileQueueConsumerService {
     private readonly dockerService: DockerService,
     private readonly storageService: StorageService,
     private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
   ) {}
 
   @Process()
-  async processCompileJob(compileJob: bull.Job<CompileJobData>) {
+  async processCompileJob(compileJob: bull.Job<CompileJobData>): Promise<void> {
+    const { submissionId, teamId } = compileJob.data;
+    const context = this.createCompilationContext(compileJob);
+
     this.logger.debug(`Compile queue job received: ${compileJob.id}`);
+
+    try {
+      const prerequisites = await this.validatePrerequisites(teamId);
+      if (!prerequisites) {
+        this.logger.warn(
+          `Compile queue job ${compileJob.id} missing prerequisites for team ${teamId}`,
+        );
+        return;
+      }
+
+      await this.initializeJobState(submissionId);
+      await this.prepareWorkspace(context, prerequisites);
+      const compiledFiles = await this.compileAllSourceFiles(
+        context,
+        prerequisites,
+      );
+      await this.persistCompilationResults(
+        context,
+        submissionId,
+        compiledFiles,
+      );
+    } catch (error) {
+      await this.handleCompilationFailure(context, submissionId, error);
+    } finally {
+      this.cleanupWorkspace(context);
+    }
+  }
+
+  private createCompilationContext(
+    compileJob: bull.Job<CompileJobData>,
+  ): CompilationContext {
     const { submissionId, teamId, version } = compileJob.data;
+    const tempDir = path.join(process.cwd(), 'tmp', String(compileJob.id));
 
-    const latestSubmission = await this.getLatestSubmission(teamId);
+    return {
+      submissionId,
+      teamId,
+      version,
+      jobId: String(compileJob.id),
+      tempDir,
+      compileLogs: [],
+    };
+  }
 
-    const latestDockerFile = await this.getLatestDockerfile(teamId);
-
-    const sourceFiles = await this.sourceFilesService.findByTeamId(teamId);
+  private async validatePrerequisites(teamId: string): Promise<{
+    submission: Submission;
+    dockerfile: DockerfileDto;
+    sourceFiles: SourceFileDto[];
+  } | null> {
+    const [submission, dockerfile, sourceFiles] = await Promise.all([
+      this.getLatestSubmission(teamId),
+      this.getLatestDockerfile(teamId),
+      this.sourceFilesService.findByTeamId(teamId),
+    ]);
 
     if (
-      !latestSubmission ||
-      !latestDockerFile ||
+      !submission ||
+      !dockerfile ||
       !sourceFiles ||
       sourceFiles.length === 0
     ) {
-      this.logger.warn(
-        `Compile queue job received without available submission: ${compileJob.id}`,
-      );
-      return;
+      return null;
     }
 
-    const imageName = latestDockerFile.imageName;
-    if (!imageName) {
-      this.logger.error(
-        `No image name found for dockerfile: ${latestDockerFile.id}`,
-      );
-      return;
+    if (!dockerfile.imageName) {
+      this.logger.error(`No image name found for dockerfile: ${dockerfile.id}`);
+      return null;
     }
 
+    return { submission, dockerfile, sourceFiles };
+  }
+
+  private async initializeJobState(submissionId: string): Promise<void> {
     await this.prisma.submission.update({
       where: { id: submissionId },
       data: {
@@ -64,127 +137,361 @@ export class CompileQueueConsumerService {
         compileStartedAt: new Date(),
       },
     });
+  }
 
-    const tempDir = path.join(process.cwd(), 'tmp', String(compileJob.id));
-    const compileLogs: string[] = [];
+  private async prepareWorkspace(
+    context: CompilationContext,
+    prerequisites: {
+      submission: Submission;
+      sourceFiles: SourceFileDto[];
+    },
+  ): Promise<void> {
+    fs.mkdirSync(context.tempDir, { recursive: true });
+    this.logger.debug(`Created temporary directory: ${context.tempDir}`);
+
+    await this.downloadCompiler(context, prerequisites.submission);
+    await this.downloadSourceFiles(context, prerequisites.sourceFiles);
+  }
+
+  private async downloadCompiler(
+    context: CompilationContext,
+    submission: Submission,
+  ): Promise<void> {
+    if (!submission.compilerPath) {
+      throw new Error(
+        `No compiler path available for submission ${submission.id}`,
+      );
+    }
+
+    this.logger.debug(`Downloading compiler: ${submission.compilerPath}`);
+    const compilerBuffer = await this.storageService.getFile(
+      submission.compilerPath,
+    );
+    const compilerPath = path.join(context.tempDir, submission.originalName);
+    fs.writeFileSync(compilerPath, compilerBuffer);
+    fs.chmodSync(compilerPath, 0o755);
+    this.logger.debug(`Compiler saved and executable: ${compilerPath}`);
+  }
+
+  private async downloadSourceFiles(
+    context: CompilationContext,
+    sourceFiles: SourceFileDto[],
+  ): Promise<void> {
+    for (const sourceFile of sourceFiles) {
+      this.logger.debug(`Downloading source file: ${sourceFile.s3Key}`);
+      const buffer = await this.storageService.getFile(sourceFile.s3Key);
+      const filePath = path.join(context.tempDir, sourceFile.originalName);
+      fs.writeFileSync(filePath, buffer);
+      this.logger.debug(`Source file saved: ${filePath}`);
+    }
+  }
+
+  private async compileAllSourceFiles(
+    context: CompilationContext,
+    prerequisites: {
+      submission: Submission;
+      dockerfile: DockerfileDto;
+      sourceFiles: SourceFileDto[];
+    },
+  ): Promise<CompiledFileInfo[]> {
+    const compileTimeoutMs = this.configService.get<number>(
+      'DOCKER_COMPILE_TIMEOUT_MS',
+      60000,
+    );
+    const compiledFiles: CompiledFileInfo[] = [];
+
+    for (const sourceFile of prerequisites.sourceFiles) {
+      const result = await this.compileSingleFile(
+        context,
+        prerequisites.submission,
+        prerequisites.dockerfile.imageName!,
+        sourceFile,
+        compileTimeoutMs,
+      );
+
+      if (result.success && result.compiledFileInfo) {
+        compiledFiles.push(result.compiledFileInfo);
+      }
+    }
+
+    return compiledFiles;
+  }
+
+  private async compileSingleFile(
+    context: CompilationContext,
+    submission: Submission,
+    imageName: string,
+    sourceFile: SourceFileDto,
+    timeoutMs: number,
+  ): Promise<{ success: boolean; compiledFileInfo?: CompiledFileInfo | null }> {
+    const logPrefix = `[${sourceFile.originalName}]`;
+    const outputFileName = sourceFile.testCaseId;
+
+    this.logCompilationStart(context, logPrefix, sourceFile, outputFileName);
+
+    const result = await this.executeCompilation(
+      context,
+      submission,
+      imageName,
+      sourceFile,
+      outputFileName,
+      timeoutMs,
+    );
+
+    this.processCompilationOutput(context, logPrefix, result);
+
+    if (result.exitCode !== 0) {
+      this.logCompilationFailure(sourceFile, result);
+      return { success: false };
+    }
+
+    const compiledFileInfo = await this.handleSuccessfulCompilation(
+      context,
+      sourceFile,
+      outputFileName,
+      logPrefix,
+    );
+
+    return { success: compiledFileInfo !== null, compiledFileInfo };
+  }
+
+  private logCompilationStart(
+    context: CompilationContext,
+    logPrefix: string,
+    sourceFile: SourceFileDto,
+    outputFileName: string,
+  ): void {
+    this.logger.debug(
+      `Compiling: ${sourceFile.originalName} -> ${outputFileName}`,
+    );
+    context.compileLogs.push(
+      `${logPrefix} Compiling ${sourceFile.originalName}`,
+    );
+    context.compileLogs.push(`${logPrefix} Output: ${outputFileName}`);
+  }
+
+  private async executeCompilation(
+    context: CompilationContext,
+    submission: Submission,
+    imageName: string,
+    sourceFile: SourceFileDto,
+    outputFileName: string,
+    timeoutMs: number,
+  ): Promise<CompilationResult> {
+    const startTime = Date.now();
+
+    const dockerResult = await this.dockerService.runContainer({
+      imageName,
+      command: [
+        `./${submission.originalName}`,
+        'build',
+        '-o',
+        outputFileName,
+        sourceFile.originalName,
+      ],
+      mountPath: context.tempDir,
+      containerPath: '/workspace',
+      submissionId: context.submissionId,
+      timeoutMs,
+    });
+
+    return {
+      success: dockerResult.exitCode === 0,
+      compileTimeMs: Date.now() - startTime,
+      stdout: dockerResult.stdout,
+      stderr: dockerResult.stderr,
+      exitCode: dockerResult.exitCode,
+    };
+  }
+
+  private processCompilationOutput(
+    context: CompilationContext,
+    logPrefix: string,
+    result: CompilationResult,
+  ): void {
+    context.compileLogs.push(
+      `${logPrefix} Compile time: ${result.compileTimeMs}ms`,
+    );
+
+    if (result.stdout) {
+      const lines = result.stdout.split('\n').filter((l) => l.trim());
+      for (const line of lines) {
+        context.compileLogs.push(`${logPrefix} ${line}`);
+      }
+    }
+
+    if (result.stderr) {
+      const lines = result.stderr.split('\n').filter((l) => l.trim());
+      for (const line of lines) {
+        context.compileLogs.push(`${logPrefix} [stderr] ${line}`);
+      }
+    }
+
+    context.compileLogs.push(`${logPrefix} Exit code: ${result.exitCode}`);
+  }
+
+  private async handleSuccessfulCompilation(
+    context: CompilationContext,
+    sourceFile: SourceFileDto,
+    outputFileName: string,
+    logPrefix: string,
+  ): Promise<CompiledFileInfo | null> {
+    const compiledOutputPath = path.join(context.tempDir, outputFileName);
+
+    if (!fs.existsSync(compiledOutputPath)) {
+      context.compileLogs.push(
+        `${logPrefix} ERROR: Compiled output not found: ${outputFileName}`,
+      );
+      this.logger.error(
+        `Compiled output missing for ${sourceFile.originalName}`,
+      );
+      return null;
+    }
+
+    const compiledBuffer = fs.readFileSync(compiledOutputPath);
+    const compiledS3Key = `compiled/${context.teamId}/v${context.version}/${sourceFile.testCaseId}`;
+
+    await this.storageService.uploadFile(
+      compiledS3Key,
+      compiledBuffer,
+      'application/octet-stream',
+    );
+
+    context.compileLogs.push(
+      `${logPrefix} SUCCESS: Compiled binary uploaded to ${compiledS3Key}`,
+    );
+    this.logger.debug(
+      `Compiled ${sourceFile.originalName} -> ${compiledS3Key}`,
+    );
+
+    return {
+      sourceFileId: sourceFile.id,
+      testCaseId: sourceFile.testCaseId,
+      compiledS3Key,
+    };
+  }
+
+  private logCompilationFailure(
+    sourceFile: SourceFileDto,
+    result: CompilationResult,
+  ): void {
+    this.logger.error(
+      `Compilation failed for ${sourceFile.originalName} with exit code ${result.exitCode}`,
+    );
+  }
+
+  private async persistCompilationResults(
+    context: CompilationContext,
+    submissionId: string,
+    compiledFiles: CompiledFileInfo[],
+  ): Promise<void> {
+    const allFilesCompiled = await this.updateCompiledFileRecords(
+      compiledFiles,
+      context.version,
+    );
+
+    const logS3Key = await this.uploadCompileLogs(context);
+
+    await this.updateSubmissionStatus(submissionId, logS3Key, allFilesCompiled);
+  }
+
+  private async updateCompiledFileRecords(
+    compiledFiles: CompiledFileInfo[],
+    version: number,
+  ): Promise<boolean> {
+    for (const file of compiledFiles) {
+      await this.sourceFilesService.updateCompiledBinary(
+        file.sourceFileId,
+        file.compiledS3Key,
+        version,
+      );
+    }
+    return compiledFiles.length > 0;
+  }
+
+  private async uploadCompileLogs(
+    context: CompilationContext,
+  ): Promise<string> {
+    const logS3Key = `compiles/${context.teamId}/v${context.version}/compile.log`;
+    await this.storageService.uploadFile(
+      logS3Key,
+      Buffer.from(context.compileLogs.join('\n')),
+      'text/plain',
+    );
+    return logS3Key;
+  }
+
+  private async updateSubmissionStatus(
+    submissionId: string,
+    logS3Key: string,
+    allFilesCompiled: boolean,
+  ): Promise<void> {
+    await this.prisma.submission.update({
+      where: { id: submissionId },
+      data: {
+        compileStatus: allFilesCompiled ? 'SUCCESS' : 'FAILED',
+        compileLogS3Key: logS3Key,
+        compileCompletedAt: new Date(),
+        compileError: allFilesCompiled
+          ? null
+          : 'One or more source files failed to compile',
+      },
+    });
+  }
+
+  private async handleCompilationFailure(
+    context: CompilationContext,
+    submissionId: string,
+    error: unknown,
+  ): Promise<void> {
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+
+    this.logger.error(
+      `Compile job failed for submission ${submissionId}: ${errorMessage}`,
+    );
+
+    context.compileLogs.push(`ERROR: ${errorMessage}`);
 
     try {
-      fs.mkdirSync(tempDir, { recursive: true });
-      this.logger.debug(`Created temporary directory: ${tempDir}`);
-
-      if (latestSubmission.compilerPath) {
-        this.logger.debug(
-          `Downloading compiler binary: ${latestSubmission.compilerPath}`,
-        );
-        const compilerBuffer = await this.storageService.getFile(
-          latestSubmission.compilerPath,
-        );
-        const compilerPath = path.join(tempDir, latestSubmission.originalName);
-        fs.writeFileSync(compilerPath, compilerBuffer);
-        fs.chmodSync(compilerPath, 0o755);
-        this.logger.debug(
-          `Compiler binary saved and made executable: ${compilerPath}`,
-        );
-      }
-
-      for (const sourceFile of sourceFiles) {
-        this.logger.debug(`Downloading source file: ${sourceFile.s3Key}`);
-        const sourceFileBuffer = await this.storageService.getFile(
-          sourceFile.s3Key,
-        );
-        const filePath = path.join(tempDir, sourceFile.originalName);
-        fs.writeFileSync(filePath, sourceFileBuffer);
-        this.logger.debug(`Source file saved: ${filePath}`);
-      }
-
-      for (const sourceFile of sourceFiles) {
-        const logPrefix = `[${sourceFile.originalName}]`;
-        this.logger.debug(
-          `Running source file: ${sourceFile.originalName} with args 6 7`,
-        );
-        compileLogs.push(`${logPrefix} Running with args: 6 7`);
-
-        const result = await this.dockerService.runContainer({
-          imageName,
-          command: [
-            `./${latestSubmission.originalName}`,
-            `run`,
-            sourceFile.originalName,
-            '6',
-            '7',
-          ],
-          mountPath: tempDir,
-          containerPath: '/workspace',
-          submissionId,
-          version,
-        });
-
-        if (result.stdout) {
-          const stdoutLines = result.stdout.split('\n').filter((l) => l.trim());
-          for (const line of stdoutLines) {
-            compileLogs.push(`${logPrefix} ${line}`);
-          }
-        }
-        if (result.stderr) {
-          const stderrLines = result.stderr.split('\n').filter((l) => l.trim());
-          for (const line of stderrLines) {
-            compileLogs.push(`${logPrefix} [stderr] ${line}`);
-          }
-        }
-        compileLogs.push(`${logPrefix} Exit code: ${result.exitCode}`);
-
-        this.logger.log(
-          `Output for ${sourceFile.originalName}:\n` +
-            `  stdout: ${result.stdout}\n` +
-            `  stderr: ${result.stderr}\n` +
-            `  exitCode: ${result.exitCode}`,
-        );
-      }
-
-      const logS3Key = `compiles/${teamId}/v${version}/compile.log`;
-      await this.storageService.uploadFile(
+      const logS3Key = await this.uploadCompileLogs(context);
+      await this.updateSubmissionFailureStatus(
+        submissionId,
         logS3Key,
-        Buffer.from(compileLogs.join('\n')),
-        'text/plain',
+        errorMessage,
       );
-
-      await this.prisma.submission.update({
-        where: { id: submissionId },
-        data: {
-          compileStatus: 'SUCCESS',
-          compileLogS3Key: logS3Key,
-          compileCompletedAt: new Date(),
-        },
-      });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-
+    } catch (uploadError) {
       this.logger.error(
-        `Compile job failed for submission ${submissionId}: ${errorMessage}`,
+        `Failed to upload error logs: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`,
       );
+      await this.updateSubmissionFailureStatus(
+        submissionId,
+        null,
+        errorMessage,
+      );
+    }
+  }
 
-      compileLogs.push(`ERROR: ${errorMessage}`);
+  private async updateSubmissionFailureStatus(
+    submissionId: string,
+    logS3Key: string | null,
+    errorMessage: string,
+  ): Promise<void> {
+    await this.prisma.submission.update({
+      where: { id: submissionId },
+      data: {
+        compileStatus: 'FAILED',
+        compileLogS3Key: logS3Key,
+        compileCompletedAt: new Date(),
+        compileError: errorMessage,
+      },
+    });
+  }
 
-      const logS3Key = `compiles/${teamId}/v${version}/compile.log`;
-      await this.storageService
-        .uploadFile(logS3Key, Buffer.from(compileLogs.join('\n')), 'text/plain')
-        .catch(() => {});
-
-      await this.prisma.submission.update({
-        where: { id: submissionId },
-        data: {
-          compileStatus: 'FAILED',
-          compileLogS3Key: logS3Key,
-          compileCompletedAt: new Date(),
-          compileError: errorMessage,
-        },
-      });
-    } finally {
-      if (fs.existsSync(tempDir)) {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-        this.logger.debug(`Cleaned up temporary directory: ${tempDir}`);
-      }
+  private cleanupWorkspace(context: CompilationContext): void {
+    if (fs.existsSync(context.tempDir)) {
+      fs.rmSync(context.tempDir, { recursive: true, force: true });
+      this.logger.debug(`Cleaned up temporary directory: ${context.tempDir}`);
     }
   }
 
@@ -192,7 +499,6 @@ export class CompileQueueConsumerService {
     teamId: string,
   ): Promise<Submission | undefined> {
     const submissions = await this.submissionsService.findByTeam(teamId);
-
     return submissions.at(0);
   }
 

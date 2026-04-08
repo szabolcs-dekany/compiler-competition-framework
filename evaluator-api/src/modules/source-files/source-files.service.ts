@@ -10,7 +10,6 @@ import type {
   SourceFileWithTestDetails,
 } from '@evaluator/shared';
 import * as crypto from 'crypto';
-import { SourceFile } from '@prisma/client';
 
 @Injectable()
 export class SourceFilesService {
@@ -273,38 +272,40 @@ export class SourceFilesService {
     return this.toDto(updated);
   }
 
-  async findByTeamAndTestCase(
-    teamId: string,
-    testCaseId: string,
-  ): Promise<SourceFileDto | null> {
-    const sourceFile = await this.prisma.sourceFile.findUnique({
-      where: {
-        teamId_testCaseId: { teamId, testCaseId },
-      },
-    });
-
-    return sourceFile ? this.toDto(sourceFile) : null;
-  }
-  async findByTeamId(teamId: string): Promise<SourceFile[] | null> {
-    const sourceFile = await this.prisma.sourceFile.findMany({
+  async findByTeamId(teamId: string): Promise<SourceFileDto[] | null> {
+    const sourceFiles = await this.prisma.sourceFile.findMany({
       where: { teamId },
     });
 
-    return sourceFile ? sourceFile : null;
+    return sourceFiles.length > 0
+      ? sourceFiles.map((sf) => this.toDto(sf))
+      : null;
   }
 
-  async getContent(teamId: string, testCaseId: string): Promise<Buffer | null> {
+  async updateCompiledBinary(
+    sourceFileId: string,
+    compiledS3Key: string,
+    compiledSubmissionVersion: number,
+  ): Promise<SourceFileDto> {
     const sourceFile = await this.prisma.sourceFile.findUnique({
-      where: {
-        teamId_testCaseId: { teamId, testCaseId },
-      },
+      where: { id: sourceFileId },
     });
 
     if (!sourceFile) {
-      return null;
+      throw new NotFoundException(
+        `Source file with id ${sourceFileId} not found`,
+      );
     }
 
-    return this.storage.getFile(sourceFile.s3Key);
+    const updated = await this.prisma.sourceFile.update({
+      where: { id: sourceFileId },
+      data: {
+        compiledS3Key: compiledS3Key,
+        compiledAt: new Date(),
+        compiledSubmissionVersion: compiledSubmissionVersion,
+      },
+    });
+    return this.toDto(updated);
   }
 
   private toDto(sf: {
@@ -318,6 +319,9 @@ export class SourceFilesService {
     version: number;
     s3Key: string;
     uploadedAt: Date;
+    compiledS3Key?: string | null;
+    compiledAt?: Date | null;
+    compiledSubmissionVersion?: number | null;
   }): SourceFileDto {
     return {
       id: sf.id,
@@ -330,6 +334,9 @@ export class SourceFilesService {
       version: sf.version,
       s3Key: sf.s3Key,
       uploadedAt: sf.uploadedAt.toISOString(),
+      compiledS3Key: sf.compiledS3Key ?? undefined,
+      compiledAt: sf.compiledAt?.toISOString() ?? undefined,
+      compiledSubmissionVersion: sf.compiledSubmissionVersion ?? undefined,
     };
   }
 

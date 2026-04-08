@@ -58,18 +58,21 @@ enum BuildStatus {
 }
 
 model SourceFile {
-  id            String              @id @default(cuid())
-  teamId        String
-  team          Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  testCaseId    String
-  originalName  String
-  extension     String
-  s3Key         String
-  size          Int
-  checksum      String
-  version       Int                 @default(1)
-  uploadedAt    DateTime            @default(now())
-  versions      SourceFileVersion[]
+  id                       String              @id @default(cuid())
+  teamId                   String
+  team                     Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  testCaseId               String
+  originalName             String
+  extension                String
+  s3Key                    String
+  size                     Int
+  checksum                 String
+  version                  Int                 @default(1)
+  uploadedAt               DateTime            @default(now())
+  versions                 SourceFileVersion[]
+  compiledS3Key            String?
+  compiledAt               DateTime?
+  compiledSubmissionVersion Int?
 
   @@unique([teamId, testCaseId])
   @@index([teamId])

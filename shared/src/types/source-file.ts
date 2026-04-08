@@ -9,15 +9,9 @@ export interface SourceFileDto {
   version: number;
   uploadedAt: string;
   s3Key: string;
-}
-
-export interface SourceFileVersionDto {
-  id: string;
-  sourceFileId: string;
-  version: number;
-  size: number;
-  checksum: string;
-  uploadedAt: string;
+  compiledS3Key?: string;
+  compiledAt?: string;
+  compiledSubmissionVersion?: number;
 }
 
 export interface SourceFileWithTestDetails extends SourceFileDto {
