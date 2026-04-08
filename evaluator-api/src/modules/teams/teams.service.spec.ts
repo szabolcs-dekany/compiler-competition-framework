@@ -32,7 +32,6 @@ describe('TeamsService', () => {
     }).compile();
 
     service = module.get<TeamsService>(TeamsService);
-    prisma = module.get<PrismaService>(PrismaService);
   });
 
   afterEach(() => {

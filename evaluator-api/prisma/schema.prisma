@@ -70,45 +70,62 @@ model SourceFile {
   version                  Int                 @default(1)
   uploadedAt               DateTime            @default(now())
   versions                 SourceFileVersion[]
-  compiledS3Key            String?
-  compiledAt               DateTime?
-  compiledSubmissionVersion Int?
 
   @@unique([teamId, testCaseId])
   @@index([teamId])
 }
 
 model SourceFileVersion {
-  id           String      @id @default(cuid())
-  sourceFileId String
-  sourceFile   SourceFile  @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
-  version      Int
-  s3Key        String
-  size         Int
-  checksum     String
-  uploadedAt   DateTime    @default(now())
+  id                       String      @id @default(cuid())
+  sourceFileId             String
+  sourceFile               SourceFile  @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
+  version                  Int
+  s3Key                    String
+  size                     Int
+  checksum                 String
+  uploadedAt               DateTime    @default(now())
+  compilations             Compilation[]
 
   @@unique([sourceFileId, version])
   @@index([sourceFileId])
 }
 
+model Compilation {
+  id                  String            @id @default(cuid())
+  sourceFileVersionId String
+  sourceFileVersion   SourceFileVersion @relation(fields: [sourceFileVersionId], references: [id], onDelete: Cascade)
+  submissionId        String
+  submission          Submission        @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  status              CompilationStatus @default(PENDING)
+  s3Key               String?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  errorMessage        String?
+  createdAt           DateTime          @default(now())
+
+  @@unique([sourceFileVersionId, submissionId])
+  @@index([sourceFileVersionId])
+  @@index([submissionId])
+}
+
 model Submission {
-  id                String           @id @default(cuid())
-  teamId            String
-  team              Team             @relation(fields: [teamId], references: [id])
-  version           Int              @default(1)
-  originalName      String
-  extension         String
-  compilerPath      String?
-  status            SubmissionStatus @default(PENDING)
-  submittedAt       DateTime         @default(now())
-  testRuns          TestRun[]
-  totalScore        Int              @default(0)
-  compileStatus     CompileStatus    @default(PENDING)
-  compileLogS3Key   String?
-  compileStartedAt  DateTime?
+  id                 String           @id @default(cuid())
+  teamId             String
+  team               Team             @relation(fields: [teamId], references: [id])
+  version            Int              @default(1)
+  originalName       String
+  extension          String
+  compilerPath       String?
+  status             SubmissionStatus @default(PENDING)
+  submittedAt        DateTime         @default(now())
+  testRuns           TestRun[]
+  compilations       Compilation[]
+  totalScore         Int              @default(0)
+  compileStatus      CompileStatus    @default(PENDING)
+  compileLogS3Key    String?
+  compileStartedAt   DateTime?
   compileCompletedAt DateTime?
-  compileError      String?
+  compileError       String?
 
   @@unique([teamId, version])
 }
@@ -150,6 +167,20 @@ enum SubmissionStatus {
 enum CompileStatus {
   PENDING
   RUNNING
+  SUCCESS
+  FAILED
+}
+
+enum SourceFileCompileStatus {
+  PENDING
+  IN_PROGRESS
+  SUCCESS
+  FAILED
+}
+
+enum CompilationStatus {
+  PENDING
+  IN_PROGRESS
   SUCCESS
   FAILED
 }

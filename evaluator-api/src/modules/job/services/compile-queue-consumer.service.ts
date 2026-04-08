@@ -67,11 +67,17 @@ export class CompileQueueConsumerService {
         return;
       }
 
+      const compilationIdMap = await this.createPendingCompilations(
+        context,
+        prerequisites.sourceFiles,
+      );
+
       await this.initializeJobState(submissionId);
       await this.prepareWorkspace(context, prerequisites);
       const compiledFiles = await this.compileAllSourceFiles(
         context,
         prerequisites,
+        compilationIdMap,
       );
       await this.persistCompilationResults(
         context,
@@ -193,6 +199,7 @@ export class CompileQueueConsumerService {
       dockerfile: DockerfileDto;
       sourceFiles: SourceFileDto[];
     },
+    compilationIdMap: Map<string, string>,
   ): Promise<CompiledFileInfo[]> {
     const compileTimeoutMs = this.configService.get<number>(
       'DOCKER_COMPILE_TIMEOUT_MS',
@@ -201,12 +208,21 @@ export class CompileQueueConsumerService {
     const compiledFiles: CompiledFileInfo[] = [];
 
     for (const sourceFile of prerequisites.sourceFiles) {
+      const compilationId = compilationIdMap.get(sourceFile.id);
+      if (!compilationId) {
+        this.logger.error(
+          `No compilation ID found for source file ${sourceFile.id}`,
+        );
+        continue;
+      }
+
       const result = await this.compileSingleFile(
         context,
         prerequisites.submission,
         prerequisites.dockerfile.imageName!,
         sourceFile,
         compileTimeoutMs,
+        compilationId,
       );
 
       if (result.success && result.compiledFileInfo) {
@@ -223,10 +239,12 @@ export class CompileQueueConsumerService {
     imageName: string,
     sourceFile: SourceFileDto,
     timeoutMs: number,
+    compilationId: string,
   ): Promise<{ success: boolean; compiledFileInfo?: CompiledFileInfo | null }> {
     const logPrefix = `[${sourceFile.originalName}]`;
     const outputFileName = sourceFile.testCaseId;
 
+    await this.updateCompilationStatus(compilationId, 'IN_PROGRESS');
     this.logCompilationStart(context, logPrefix, sourceFile, outputFileName);
 
     const result = await this.executeCompilation(
@@ -242,6 +260,7 @@ export class CompileQueueConsumerService {
 
     if (result.exitCode !== 0) {
       this.logCompilationFailure(sourceFile, result);
+      await this.updateCompilationStatus(compilationId, 'FAILED');
       return { success: false };
     }
 
@@ -251,6 +270,16 @@ export class CompileQueueConsumerService {
       outputFileName,
       logPrefix,
     );
+
+    if (compiledFileInfo) {
+      await this.updateCompilationStatus(
+        compilationId,
+        'SUCCESS',
+        compiledFileInfo.compiledS3Key,
+      );
+    } else {
+      await this.updateCompilationStatus(compilationId, 'FAILED');
+    }
 
     return { success: compiledFileInfo !== null, compiledFileInfo };
   }
@@ -385,28 +414,10 @@ export class CompileQueueConsumerService {
     submissionId: string,
     compiledFiles: CompiledFileInfo[],
   ): Promise<void> {
-    const allFilesCompiled = await this.updateCompiledFileRecords(
-      compiledFiles,
-      context.version,
-    );
-
+    const allFilesCompiled = compiledFiles.length > 0;
     const logS3Key = await this.uploadCompileLogs(context);
 
     await this.updateSubmissionStatus(submissionId, logS3Key, allFilesCompiled);
-  }
-
-  private async updateCompiledFileRecords(
-    compiledFiles: CompiledFileInfo[],
-    version: number,
-  ): Promise<boolean> {
-    for (const file of compiledFiles) {
-      await this.sourceFilesService.updateCompiledBinary(
-        file.sourceFileId,
-        file.compiledS3Key,
-        version,
-      );
-    }
-    return compiledFiles.length > 0;
   }
 
   private async uploadCompileLogs(
@@ -507,5 +518,77 @@ export class CompileQueueConsumerService {
   ): Promise<DockerfileDto | undefined> {
     const dockerfiles = await this.dockerfilesService.findAllByTeamId(teamId);
     return dockerfiles.at(0);
+  }
+
+  private async createPendingCompilations(
+    context: CompilationContext,
+    sourceFiles: SourceFileDto[],
+  ): Promise<Map<string, string>> {
+    const compilationIdMap = new Map<string, string>();
+
+    for (const sourceFile of sourceFiles) {
+      const sourceFileVersion = await this.prisma.sourceFileVersion.findUnique({
+        where: {
+          sourceFileId_version: {
+            sourceFileId: sourceFile.id,
+            version: sourceFile.version,
+          },
+        },
+      });
+
+      if (!sourceFileVersion) {
+        this.logger.error(
+          `Source file version not found: ${sourceFile.id} v${sourceFile.version}`,
+        );
+        continue;
+      }
+
+      const compilation = await this.prisma.compilation.create({
+        data: {
+          sourceFileVersionId: sourceFileVersion.id,
+          submissionId: context.submissionId,
+          status: 'PENDING',
+        },
+      });
+
+      compilationIdMap.set(sourceFile.id, compilation.id);
+      this.logger.debug(
+        `Created compilation ${compilation.id} for source file ${sourceFile.id} v${sourceFile.version} with submission ${context.submissionId}`,
+      );
+    }
+
+    return compilationIdMap;
+  }
+
+  private async updateCompilationStatus(
+    compilationId: string,
+    status: 'PENDING' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILED',
+    s3Key?: string,
+  ): Promise<void> {
+    const updateData: {
+      status: typeof status;
+      startedAt?: Date;
+      completedAt?: Date;
+      s3Key?: string;
+    } = { status };
+
+    if (status === 'IN_PROGRESS') {
+      updateData.startedAt = new Date();
+    }
+
+    if (status === 'SUCCESS' || status === 'FAILED') {
+      updateData.completedAt = new Date();
+    }
+
+    if (s3Key) {
+      updateData.s3Key = s3Key;
+    }
+
+    await this.prisma.compilation.update({
+      where: { id: compilationId },
+      data: updateData,
+    });
+
+    this.logger.debug(`Updated compilation ${compilationId} to ${status}`);
   }
 }

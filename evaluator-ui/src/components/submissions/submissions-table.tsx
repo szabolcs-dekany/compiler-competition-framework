@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import type { SubmissionDto, TestRunWithDetailsDto } from '@evaluator/shared';
-import { SubmissionStatus, TestRunStatus } from '@evaluator/shared';
+import type { SubmissionDto, SubmissionCompilationDto } from '@evaluator/shared';
+import { SubmissionStatus, CompilationStatus } from '@evaluator/shared';
 import { submissionQueries } from '@/lib/queries';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,31 +31,32 @@ const statusColors: Record<SubmissionStatus, string> = {
   [SubmissionStatus.FAILED]: 'bg-red-500',
 };
 
-const testRunStatusColors: Record<TestRunStatus, string> = {
-  [TestRunStatus.PENDING]: 'bg-gray-400',
-  [TestRunStatus.COMPILING]: 'bg-blue-400',
-  [TestRunStatus.RUNNING]: 'bg-yellow-400',
-  [TestRunStatus.PASSED]: 'bg-green-500',
-  [TestRunStatus.FAILED]: 'bg-red-400',
-  [TestRunStatus.TIMEOUT]: 'bg-orange-400',
-  [TestRunStatus.ERROR]: 'bg-red-600',
+const compilationStatusColors: Record<CompilationStatus, string> = {
+  [CompilationStatus.PENDING]: 'bg-gray-400',
+  [CompilationStatus.IN_PROGRESS]: 'bg-blue-400',
+  [CompilationStatus.SUCCESS]: 'bg-green-500',
+  [CompilationStatus.FAILED]: 'bg-red-400',
 };
 
-function TestRunsContent({ submissionId }: { submissionId: string }) {
-  const { data: testRuns, isLoading } = useQuery(submissionQueries.testRuns(submissionId));
+function CompilationsContent({ submissionId }: { submissionId: string }) {
+  const { data: compilations, isLoading } = useQuery(
+    submissionQueries.compilations(submissionId),
+  );
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-4 text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin mr-2" />
-        Loading test runs...
+        Loading compilations...
       </div>
     );
   }
 
-  if (!testRuns || testRuns.length === 0) {
+  if (!compilations || compilations.length === 0) {
     return (
-      <div className="text-center py-4 text-muted-foreground">No test runs yet</div>
+      <div className="text-center py-4 text-muted-foreground">
+        No compilations yet
+      </div>
     );
   }
 
@@ -63,49 +64,66 @@ function TestRunsContent({ submissionId }: { submissionId: string }) {
     <Table>
       <TableHeader>
         <TableRow className="border-0 hover:bg-transparent">
-          <TableHead className="text-xs text-muted-foreground h-8">Test Case</TableHead>
-          <TableHead className="text-xs text-muted-foreground h-8">Category</TableHead>
-          <TableHead className="text-xs text-muted-foreground h-8">Status</TableHead>
-          <TableHead className="text-xs text-muted-foreground h-8">Points</TableHead>
-          <TableHead className="text-xs text-muted-foreground h-8">Time</TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">
+            Test Case
+          </TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">
+            Category
+          </TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">
+            Status
+          </TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">
+            Compile Time
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {testRuns.map((tr) => (
-          <TestRunDetailRow key={tr.id} testRun={tr} />
+        {compilations.map((comp) => (
+          <CompilationDetailRow key={comp.id} compilation={comp} />
         ))}
       </TableBody>
     </Table>
   );
 }
 
-function TestRunDetailRow({ testRun }: { testRun: TestRunWithDetailsDto }) {
-  const totalEarned = testRun.pointsEarned + testRun.bonusEarned;
+function formatCompileTime(compilation: SubmissionCompilationDto): string {
+  if (!compilation.startedAt || !compilation.completedAt) {
+    return '-';
+  }
+  const ms =
+    new Date(compilation.completedAt).getTime() -
+    new Date(compilation.startedAt).getTime();
+  return `${ms}ms`;
+}
 
+function CompilationDetailRow({
+  compilation,
+}: {
+  compilation: SubmissionCompilationDto;
+}) {
   return (
     <TableRow className="border-0 hover:bg-muted/30">
-      <TableCell className="py-2 pl-4">{testRun.testCase.name}</TableCell>
+      <TableCell className="py-2 pl-4">
+        {compilation.testCase.name}
+      </TableCell>
       <TableCell className="py-2">
         <Badge variant="outline" className="text-xs">
-          {testRun.testCase.category}
+          {compilation.testCase.category}
         </Badge>
       </TableCell>
       <TableCell className="py-2">
-        <Badge className={cn('text-xs', testRunStatusColors[testRun.status])}>
-          {testRun.status}
+        <Badge
+          className={cn(
+            'text-xs',
+            compilationStatusColors[compilation.status],
+          )}
+        >
+          {compilation.status}
         </Badge>
-      </TableCell>
-      <TableCell className="py-2">
-        <span className={cn(totalEarned > 0 ? 'text-green-600 font-medium' : 'text-muted-foreground')}>
-          {totalEarned}
-        </span>
-        <span className="text-muted-foreground"> / {testRun.testCase.points}</span>
-        {testRun.bonusEarned > 0 && (
-          <span className="text-xs text-green-500 ml-1">(+{testRun.bonusEarned})</span>
-        )}
       </TableCell>
       <TableCell className="py-2 text-muted-foreground text-sm">
-        {testRun.runTimeMs ? `${testRun.runTimeMs}ms` : '-'}
+        {formatCompileTime(compilation)}
       </TableCell>
     </TableRow>
   );
@@ -163,7 +181,9 @@ export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
                   )}
                 </Button>
               </TableCell>
-              <TableCell className="font-medium">{submission.teamName}</TableCell>
+              <TableCell className="font-medium">
+                {submission.teamName}
+              </TableCell>
               <TableCell>v{submission.version}</TableCell>
               <TableCell>
                 <Badge className={statusColors[submission.status]}>
@@ -172,7 +192,9 @@ export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
               </TableCell>
               <TableCell>{submission.totalScore}</TableCell>
               <TableCell className="text-muted-foreground">
-                {formatDistanceToNow(new Date(submission.submittedAt), { addSuffix: true })}
+                {formatDistanceToNow(new Date(submission.submittedAt), {
+                  addSuffix: true,
+                })}
               </TableCell>
             </TableRow>
             {expandedRows.has(submission.id) && (
@@ -181,13 +203,16 @@ export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
                   <div className="pl-10 pr-4">
                     <div className="flex justify-end py-2">
                       <Button variant="outline" size="sm" asChild>
-                        <Link to="/submissions/$submissionId" params={{ submissionId: submission.id }}>
+                        <Link
+                          to="/submissions/$submissionId"
+                          params={{ submissionId: submission.id }}
+                        >
                           <ExternalLink className="h-4 w-4 mr-1" />
                           View Details
                         </Link>
                       </Button>
                     </div>
-                    <TestRunsContent submissionId={submission.id} />
+                    <CompilationsContent submissionId={submission.id} />
                   </div>
                 </TableCell>
               </TableRow>

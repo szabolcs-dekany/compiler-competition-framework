@@ -21,7 +21,10 @@ import {
 } from '@nestjs/swagger';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Observable, fromEvent, map, takeUntil, of, concat } from 'rxjs';
-import type { TestRunWithDetailsDto, CompileLogEvent } from '@evaluator/shared';
+import type {
+  SubmissionCompilationDto,
+  CompileLogEvent,
+} from '@evaluator/shared';
 import { SubmissionsService } from './submissions.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
@@ -93,16 +96,20 @@ export class SubmissionsController {
     return this.submissionsService.findByTeam(teamId);
   }
 
-  @Get(':id/test-runs')
-  @ApiOperation({ summary: 'Get test runs for a submission' })
+  @Get(':id/compilations')
+  @ApiOperation({
+    summary: 'Get compilation status per test case for a submission',
+  })
   @ApiParam({ name: 'id', description: 'Submission ID' })
   @ApiResponse({
     status: 200,
-    description: 'List of test runs with test case details',
+    description: 'List of compilation statuses with test case details',
   })
   @ApiResponse({ status: 404, description: 'Submission not found' })
-  findTestRuns(@Param('id') id: string): Promise<TestRunWithDetailsDto[]> {
-    return this.submissionsService.findTestRuns(id);
+  findCompilations(
+    @Param('id') id: string,
+  ): Promise<SubmissionCompilationDto[]> {
+    return this.submissionsService.findCompilations(id);
   }
 
   @Get(':id/compile-logs')

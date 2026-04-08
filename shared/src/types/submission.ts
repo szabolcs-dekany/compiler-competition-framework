@@ -1,5 +1,4 @@
 import { SubmissionStatus, CompileStatus } from './enums.js';
-import type { TestRunDto } from './test-run.js';
 
 export interface SubmissionDto {
   id: string;
@@ -17,10 +16,6 @@ export interface SubmissionDto {
   compileStartedAt?: string | null;
   compileCompletedAt?: string | null;
   compileError?: string | null;
-}
-
-export interface SubmissionWithTestRunsDto extends SubmissionDto {
-  testRuns: TestRunDto[];
 }
 
 export interface CreateSubmissionDto {

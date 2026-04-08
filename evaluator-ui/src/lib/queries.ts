@@ -48,10 +48,10 @@ export const submissionQueries = {
       queryFn: () => submissionsApi.listByTeam(teamId),
     }),
   
-  testRuns: (submissionId: string) =>
+  compilations: (submissionId: string) =>
     queryOptions({
-      queryKey: ['submissions', submissionId, 'test-runs'],
-      queryFn: () => submissionsApi.testRuns(submissionId),
+      queryKey: ['submissions', submissionId, 'compilations'],
+      queryFn: () => submissionsApi.compilations(submissionId),
     }),
   
   compileLogs: (id: string) =>

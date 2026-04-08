@@ -282,32 +282,6 @@ export class SourceFilesService {
       : null;
   }
 
-  async updateCompiledBinary(
-    sourceFileId: string,
-    compiledS3Key: string,
-    compiledSubmissionVersion: number,
-  ): Promise<SourceFileDto> {
-    const sourceFile = await this.prisma.sourceFile.findUnique({
-      where: { id: sourceFileId },
-    });
-
-    if (!sourceFile) {
-      throw new NotFoundException(
-        `Source file with id ${sourceFileId} not found`,
-      );
-    }
-
-    const updated = await this.prisma.sourceFile.update({
-      where: { id: sourceFileId },
-      data: {
-        compiledS3Key: compiledS3Key,
-        compiledAt: new Date(),
-        compiledSubmissionVersion: compiledSubmissionVersion,
-      },
-    });
-    return this.toDto(updated);
-  }
-
   private toDto(sf: {
     id: string;
     teamId: string;
@@ -319,9 +293,6 @@ export class SourceFilesService {
     version: number;
     s3Key: string;
     uploadedAt: Date;
-    compiledS3Key?: string | null;
-    compiledAt?: Date | null;
-    compiledSubmissionVersion?: number | null;
   }): SourceFileDto {
     return {
       id: sf.id,
@@ -334,9 +305,6 @@ export class SourceFilesService {
       version: sf.version,
       s3Key: sf.s3Key,
       uploadedAt: sf.uploadedAt.toISOString(),
-      compiledS3Key: sf.compiledS3Key ?? undefined,
-      compiledAt: sf.compiledAt?.toISOString() ?? undefined,
-      compiledSubmissionVersion: sf.compiledSubmissionVersion ?? undefined,
     };
   }
 
