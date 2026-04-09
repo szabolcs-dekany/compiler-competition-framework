@@ -23,24 +23,25 @@ import {
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Observable, fromEvent, map, takeUntil, of, concat } from 'rxjs';
-import { DockerfilesService } from './dockerfiles.service';
-import { DockerfileEntity } from './entities/dockerfile.entity';
-import { DockerfileVersionEntity } from './entities/dockerfile-version.entity';
-import { DockerfileListEntity } from './entities/dockerfile-list.entity';
+import { Observable, Subject, from, merge, of, takeUntil } from 'rxjs';
+import { concatMap } from 'rxjs/operators';
 import type {
   DockerfileVersionDto,
   DockerfileListDto,
   BuildLogEvent,
 } from '@evaluator/shared';
+import { RedisLogService } from '../../common/redis/redis-log.service';
+import { DockerfilesService } from './dockerfiles.service';
+import { DockerfileEntity } from './entities/dockerfile.entity';
+import { DockerfileVersionEntity } from './entities/dockerfile-version.entity';
+import { DockerfileListEntity } from './entities/dockerfile-list.entity';
 
 @ApiTags('dockerfiles')
 @Controller('dockerfiles')
 export class DockerfilesController {
   constructor(
     private readonly dockerfilesService: DockerfilesService,
-    private readonly eventEmitter: EventEmitter2,
+    private readonly redisLogService: RedisLogService,
   ) {}
 
   @Get()
@@ -175,17 +176,47 @@ export class DockerfilesController {
     @Param('version') version: string,
   ): Observable<{ data: BuildLogEvent }> {
     const versionNum = parseInt(version, 10);
-    const eventTopic = `docker-build:${id}:${versionNum}`;
-    const completeTopic = `${eventTopic}:complete`;
+    const channel = `docker-build:${id}:${versionNum}`;
+    const close$ = new Subject<void>();
+    const realTime$ = new Subject<{ data: BuildLogEvent }>();
 
-    const logStream$ = fromEvent(this.eventEmitter, eventTopic).pipe(
-      map((event: unknown) => ({ data: event as BuildLogEvent })),
-      takeUntil(fromEvent(this.eventEmitter, completeTopic)),
+    void (async () => {
+      const unsubscribe = await this.redisLogService.subscribe(
+        channel,
+        (event) => {
+          const logEvent = event as BuildLogEvent;
+          realTime$.next({ data: logEvent });
+          if (logEvent.type === 'complete' || logEvent.type === 'error') {
+            realTime$.complete();
+            close$.next();
+            void unsubscribe();
+          }
+        },
+      );
+
+      close$.subscribe({
+        complete: () => {
+          void unsubscribe();
+        },
+      });
+    })();
+
+    const history$ = from(this.redisLogService.getLogHistory(channel)).pipe(
+      concatMap((lines) =>
+        from(
+          lines.map((line): { data: BuildLogEvent } => ({
+            data: { type: 'log', message: line },
+          })),
+        ),
+      ),
     );
 
-    return concat(
-      of({ data: { type: 'status', status: 'BUILDING' } as BuildLogEvent }),
-      logStream$,
+    const status$ = of<{ data: BuildLogEvent }>({
+      data: { type: 'status', status: 'BUILDING' },
+    });
+
+    return merge(status$, history$, realTime$).pipe(
+      takeUntil(close$ as Observable<unknown>),
     );
   }
 

@@ -19,12 +19,14 @@ import {
   ApiConsumes,
   ApiBody,
 } from '@nestjs/swagger';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Observable, fromEvent, map, takeUntil, of, concat } from 'rxjs';
+import { Observable, Subject, from, merge, of, takeUntil } from 'rxjs';
+import { concatMap } from 'rxjs/operators';
 import type {
   SubmissionCompilationDto,
   CompileLogEvent,
 } from '@evaluator/shared';
+import { CompileStatus } from '@evaluator/shared';
+import { RedisLogService } from '../../common/redis/redis-log.service';
 import { SubmissionsService } from './submissions.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
@@ -34,7 +36,7 @@ import { Submission } from './entities/submission.entity';
 export class SubmissionsController {
   constructor(
     private readonly submissionsService: SubmissionsService,
-    private readonly eventEmitter: EventEmitter2,
+    private readonly redisLogService: RedisLogService,
   ) {}
 
   @Post()
@@ -128,18 +130,43 @@ export class SubmissionsController {
   streamCompileLogs(
     @Param('id') id: string,
   ): Observable<{ data: CompileLogEvent }> {
-    const submission = this.submissionsService.findOne(id);
-    const eventTopic = `compile-log:${id}`;
-    const completeTopic = `${eventTopic}:complete`;
+    const close$ = new Subject<void>();
+    const realTime$ = new Subject<{ data: CompileLogEvent }>();
 
-    const logStream$ = fromEvent(this.eventEmitter, eventTopic).pipe(
-      map((event: unknown) => ({ data: event as CompileLogEvent })),
-      takeUntil(fromEvent(this.eventEmitter, completeTopic)),
+    void (async () => {
+      const unsubscribe = await this.redisLogService.subscribe(id, (event) => {
+        const logEvent = event as CompileLogEvent;
+        realTime$.next({ data: logEvent });
+        if (logEvent.type === 'complete' || logEvent.type === 'error') {
+          realTime$.complete();
+          close$.next();
+          void unsubscribe();
+        }
+      });
+
+      close$.subscribe({
+        complete: () => {
+          void unsubscribe();
+        },
+      });
+    })();
+
+    const history$ = from(this.redisLogService.getLogHistory(id)).pipe(
+      concatMap((lines) =>
+        from(
+          lines.map((line): { data: CompileLogEvent } => ({
+            data: { type: 'log', message: line },
+          })),
+        ),
+      ),
     );
 
-    return concat(
-      of({ data: { type: 'status', status: 'RUNNING' } as CompileLogEvent }),
-      logStream$,
+    const status$ = of<{ data: CompileLogEvent }>({
+      data: { type: 'status', status: CompileStatus.RUNNING },
+    });
+
+    return merge(status$, history$, realTime$).pipe(
+      takeUntil(close$ as Observable<unknown>),
     );
   }
 

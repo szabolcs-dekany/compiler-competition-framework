@@ -6,6 +6,14 @@ import { DockerfilesService } from '../../dockerfiles/dockerfiles.service';
 import { StorageService } from '../../../common/storage/storage.service';
 import { DockerService } from '../../docker/docker.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { RedisLogService } from '../../../common/redis/redis-log.service';
+
+interface BuildContext {
+  dockerfileId: string;
+  teamId: string;
+  version: number;
+  channel: string;
+}
 
 @Processor('dockerfile')
 export class DockerfileQueueConsumerService {
@@ -16,99 +24,154 @@ export class DockerfileQueueConsumerService {
     private readonly storageService: StorageService,
     private readonly dockerService: DockerService,
     private readonly prisma: PrismaService,
+    private readonly redisLogService: RedisLogService,
   ) {}
 
   @Process()
-  async processDockerBuildJob(dockerBuildJob: bull.Job<DockerBuildJobData>) {
-    const { dockerfileId, teamId, version } = dockerBuildJob.data;
-
-    const dockerFile = await this.dockerfilesService.findOne(dockerfileId);
-
-    if (!dockerFile || !dockerFile.s3Key) {
-      this.logger.warn(
-        `Dockerfile not found or missing S3 key: ${dockerfileId}`,
-      );
-      return;
-    }
+  async processDockerBuildJob(
+    job: bull.Job<DockerBuildJobData>,
+  ): Promise<void> {
+    const ctx = this.createBuildContext(job);
+    const dockerfile = await this.validateDockerfile(ctx);
+    if (!dockerfile) return;
 
     this.logger.log(
-      `Processing docker build job for dockerfile: ${dockerfileId}`,
+      `Processing docker build job for dockerfile: ${ctx.dockerfileId}`,
     );
-
-    await this.prisma.dockerfileVersion.update({
-      where: {
-        dockerfileId_version: { dockerfileId, version },
-      },
-      data: {
-        buildStatus: 'BUILDING',
-        buildStartedAt: new Date(),
-      },
-    });
+    await this.initializeBuildStatus(ctx);
 
     try {
-      const dockerfileBuffer = await this.storageService.getFile(
-        dockerFile.s3Key,
-      );
-
-      const imageResult = await this.dockerService.buildImage({
-        dockerfileBuffer,
-        version,
-        teamId,
-        dockerfileId,
-      });
-
-      const logS3Key = `dockerfiles/${teamId}/v${version}/build.log`;
-      await this.storageService.uploadFile(
-        logS3Key,
-        Buffer.from(imageResult.buildLog.join('\n')),
-        'text/plain',
-      );
-
-      await this.prisma.dockerfileVersion.update({
-        where: {
-          dockerfileId_version: { dockerfileId, version },
-        },
-        data: {
-          buildStatus: 'SUCCESS',
-          buildLogS3Key: logS3Key,
-          buildCompletedAt: new Date(),
-        },
-      });
-
+      const imageResult = await this.executeBuild(ctx, dockerfile);
+      const logS3Key = await this.uploadBuildLogs(ctx);
+      await this.updateBuildStatus(ctx, 'SUCCESS', { logS3Key });
       await this.dockerfilesService.updateImageName(
-        dockerfileId,
+        ctx.dockerfileId,
         imageResult.imageName,
       );
-
       this.logger.log(`Built and saved image: ${imageResult.imageName}`);
+      await this.finalizeLogStream(ctx, 'SUCCESS');
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-
-      this.logger.error(
-        `Build failed for dockerfile ${dockerfileId}: ${errorMessage}`,
-      );
-
-      const logS3Key = `dockerfiles/${teamId}/v${version}/build.log`;
-      await this.storageService
-        .uploadFile(
-          logS3Key,
-          Buffer.from(`Build failed: ${errorMessage}`),
-          'text/plain',
-        )
-        .catch(() => {});
-
-      await this.prisma.dockerfileVersion.update({
-        where: {
-          dockerfileId_version: { dockerfileId, version },
-        },
-        data: {
-          buildStatus: 'FAILED',
-          buildLogS3Key: logS3Key,
-          buildCompletedAt: new Date(),
-          buildError: errorMessage,
-        },
-      });
+      await this.handleBuildFailure(ctx, error);
     }
+  }
+
+  private createBuildContext(job: bull.Job<DockerBuildJobData>): BuildContext {
+    const { dockerfileId, teamId, version } = job.data;
+    return {
+      dockerfileId,
+      teamId,
+      version,
+      channel: `docker-build:${dockerfileId}:${version}`,
+    };
+  }
+
+  private async validateDockerfile(
+    ctx: BuildContext,
+  ): Promise<{ s3Key: string } | null> {
+    const dockerfile = await this.dockerfilesService.findOne(ctx.dockerfileId);
+
+    if (!dockerfile || !dockerfile.s3Key) {
+      this.logger.warn(
+        `Dockerfile not found or missing S3 key: ${ctx.dockerfileId}`,
+      );
+      return null;
+    }
+
+    return { s3Key: dockerfile.s3Key };
+  }
+
+  private async initializeBuildStatus(ctx: BuildContext): Promise<void> {
+    await this.updateBuildStatus(ctx, 'BUILDING');
+  }
+
+  private async executeBuild(ctx: BuildContext, dockerfile: { s3Key: string }) {
+    const dockerfileBuffer = await this.storageService.getFile(
+      dockerfile.s3Key,
+    );
+
+    return this.dockerService.buildImage({
+      dockerfileBuffer,
+      version: ctx.version,
+      teamId: ctx.teamId,
+      dockerfileId: ctx.dockerfileId,
+      onLog: (message) => {
+        void this.redisLogService.appendLog(ctx.channel, message);
+      },
+    });
+  }
+
+  private async uploadBuildLogs(ctx: BuildContext): Promise<string> {
+    const logS3Key = `dockerfiles/${ctx.teamId}/v${ctx.version}/build.log`;
+    const logs = await this.redisLogService.getLogHistory(ctx.channel);
+    await this.storageService.uploadFile(
+      logS3Key,
+      Buffer.from(logs.join('\n')),
+      'text/plain',
+    );
+    return logS3Key;
+  }
+
+  private async updateBuildStatus(
+    ctx: BuildContext,
+    status: 'BUILDING' | 'SUCCESS' | 'FAILED',
+    opts?: { logS3Key?: string; error?: string },
+  ): Promise<void> {
+    await this.prisma.dockerfileVersion.update({
+      where: {
+        dockerfileId_version: {
+          dockerfileId: ctx.dockerfileId,
+          version: ctx.version,
+        },
+      },
+      data: {
+        buildStatus: status,
+        ...(status !== 'BUILDING' && { buildCompletedAt: new Date() }),
+        ...(opts?.logS3Key && { buildLogS3Key: opts.logS3Key }),
+        ...(opts?.error && { buildError: opts.error }),
+      },
+    });
+  }
+
+  private async finalizeLogStream(
+    ctx: BuildContext,
+    status: string,
+  ): Promise<void> {
+    await this.redisLogService.publishEvent(ctx.channel, {
+      type: 'complete',
+      status,
+    });
+    await this.redisLogService.deleteBuffer(ctx.channel);
+  }
+
+  private async handleBuildFailure(
+    ctx: BuildContext,
+    error: unknown,
+  ): Promise<void> {
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+
+    this.logger.error(
+      `Build failed for dockerfile ${ctx.dockerfileId}: ${errorMessage}`,
+    );
+
+    await this.redisLogService.appendLog(
+      ctx.channel,
+      `Build failed: ${errorMessage}`,
+    );
+
+    try {
+      const logS3Key = await this.uploadBuildLogs(ctx);
+      await this.updateBuildStatus(ctx, 'FAILED', {
+        logS3Key,
+        error: errorMessage,
+      });
+    } catch (uploadError) {
+      this.logger.error(
+        `Failed to upload error logs: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`,
+      );
+      await this.updateBuildStatus(ctx, 'FAILED', { error: errorMessage });
+    }
+
+    await this.finalizeLogStream(ctx, 'FAILED');
   }
 }

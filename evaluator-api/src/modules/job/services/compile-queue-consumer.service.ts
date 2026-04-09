@@ -13,6 +13,7 @@ import { DockerService } from '../../docker/docker.service';
 import { StorageService } from '../../../common/storage/storage.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
+import { RedisLogService } from '../../../common/redis/redis-log.service';
 
 interface CompilationContext {
   submissionId: string;
@@ -20,7 +21,6 @@ interface CompilationContext {
   version: number;
   jobId: string;
   tempDir: string;
-  compileLogs: string[];
 }
 
 interface CompilationResult {
@@ -49,6 +49,7 @@ export class CompileQueueConsumerService {
     private readonly storageService: StorageService,
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly redisLogService: RedisLogService,
   ) {}
 
   @Process()
@@ -63,6 +64,13 @@ export class CompileQueueConsumerService {
       if (!prerequisites) {
         this.logger.warn(
           `Compile queue job ${compileJob.id} missing prerequisites for team ${teamId}`,
+        );
+        await this.handleCompilationFailure(
+          context,
+          submissionId,
+          new Error(
+            'Missing prerequisites: ensure a Dockerfile, Docker image, and source files exist',
+          ),
         );
         return;
       }
@@ -83,6 +91,7 @@ export class CompileQueueConsumerService {
         context,
         submissionId,
         compiledFiles,
+        prerequisites.sourceFiles.length,
       );
     } catch (error) {
       await this.handleCompilationFailure(context, submissionId, error);
@@ -103,8 +112,14 @@ export class CompileQueueConsumerService {
       version,
       jobId: String(compileJob.id),
       tempDir,
-      compileLogs: [],
     };
+  }
+
+  private async appendLog(
+    context: CompilationContext,
+    message: string,
+  ): Promise<void> {
+    await this.redisLogService.appendLog(context.submissionId, message);
   }
 
   private async validatePrerequisites(teamId: string): Promise<{
@@ -242,10 +257,15 @@ export class CompileQueueConsumerService {
     compilationId: string,
   ): Promise<{ success: boolean; compiledFileInfo?: CompiledFileInfo | null }> {
     const logPrefix = `[${sourceFile.originalName}]`;
-    const outputFileName = sourceFile.testCaseId;
+    const outputFileName = path.parse(sourceFile.originalName).name;
 
     await this.updateCompilationStatus(compilationId, 'IN_PROGRESS');
-    this.logCompilationStart(context, logPrefix, sourceFile, outputFileName);
+    await this.logCompilationStart(
+      context,
+      logPrefix,
+      sourceFile,
+      outputFileName,
+    );
 
     const result = await this.executeCompilation(
       context,
@@ -256,7 +276,7 @@ export class CompileQueueConsumerService {
       timeoutMs,
     );
 
-    this.processCompilationOutput(context, logPrefix, result);
+    await this.processCompilationOutput(context, logPrefix, result);
 
     if (result.exitCode !== 0) {
       this.logCompilationFailure(sourceFile, result);
@@ -284,19 +304,20 @@ export class CompileQueueConsumerService {
     return { success: compiledFileInfo !== null, compiledFileInfo };
   }
 
-  private logCompilationStart(
+  private async logCompilationStart(
     context: CompilationContext,
     logPrefix: string,
     sourceFile: SourceFileDto,
     outputFileName: string,
-  ): void {
+  ): Promise<void> {
     this.logger.debug(
       `Compiling: ${sourceFile.originalName} -> ${outputFileName}`,
     );
-    context.compileLogs.push(
+    await this.appendLog(
+      context,
       `${logPrefix} Compiling ${sourceFile.originalName}`,
     );
-    context.compileLogs.push(`${logPrefix} Output: ${outputFileName}`);
+    await this.appendLog(context, `${logPrefix} Output: ${outputFileName}`);
   }
 
   private async executeCompilation(
@@ -322,6 +343,9 @@ export class CompileQueueConsumerService {
       containerPath: '/workspace',
       submissionId: context.submissionId,
       timeoutMs,
+      onLog: (message) => {
+        void this.appendLog(context, message);
+      },
     });
 
     return {
@@ -333,30 +357,24 @@ export class CompileQueueConsumerService {
     };
   }
 
-  private processCompilationOutput(
+  private async processCompilationOutput(
     context: CompilationContext,
     logPrefix: string,
     result: CompilationResult,
-  ): void {
-    context.compileLogs.push(
+  ): Promise<void> {
+    await this.appendLog(
+      context,
       `${logPrefix} Compile time: ${result.compileTimeMs}ms`,
     );
-
-    if (result.stdout) {
-      const lines = result.stdout.split('\n').filter((l) => l.trim());
-      for (const line of lines) {
-        context.compileLogs.push(`${logPrefix} ${line}`);
-      }
-    }
 
     if (result.stderr) {
       const lines = result.stderr.split('\n').filter((l) => l.trim());
       for (const line of lines) {
-        context.compileLogs.push(`${logPrefix} [stderr] ${line}`);
+        await this.appendLog(context, `${logPrefix} [stderr] ${line}`);
       }
     }
 
-    context.compileLogs.push(`${logPrefix} Exit code: ${result.exitCode}`);
+    await this.appendLog(context, `${logPrefix} Exit code: ${result.exitCode}`);
   }
 
   private async handleSuccessfulCompilation(
@@ -368,7 +386,8 @@ export class CompileQueueConsumerService {
     const compiledOutputPath = path.join(context.tempDir, outputFileName);
 
     if (!fs.existsSync(compiledOutputPath)) {
-      context.compileLogs.push(
+      await this.appendLog(
+        context,
         `${logPrefix} ERROR: Compiled output not found: ${outputFileName}`,
       );
       this.logger.error(
@@ -378,7 +397,7 @@ export class CompileQueueConsumerService {
     }
 
     const compiledBuffer = fs.readFileSync(compiledOutputPath);
-    const compiledS3Key = `compiled/${context.teamId}/v${context.version}/${sourceFile.testCaseId}`;
+    const compiledS3Key = `compiled/${context.teamId}/v${context.version}/${outputFileName}`;
 
     await this.storageService.uploadFile(
       compiledS3Key,
@@ -386,7 +405,8 @@ export class CompileQueueConsumerService {
       'application/octet-stream',
     );
 
-    context.compileLogs.push(
+    await this.appendLog(
+      context,
       `${logPrefix} SUCCESS: Compiled binary uploaded to ${compiledS3Key}`,
     );
     this.logger.debug(
@@ -413,20 +433,26 @@ export class CompileQueueConsumerService {
     context: CompilationContext,
     submissionId: string,
     compiledFiles: CompiledFileInfo[],
+    totalSourceFiles: number,
   ): Promise<void> {
-    const allFilesCompiled = compiledFiles.length > 0;
+    const allFilesCompiled = compiledFiles.length === totalSourceFiles;
     const logS3Key = await this.uploadCompileLogs(context);
 
     await this.updateSubmissionStatus(submissionId, logS3Key, allFilesCompiled);
+    await this.finalizeLogStream(
+      context,
+      allFilesCompiled ? 'SUCCESS' : 'FAILED',
+    );
   }
 
   private async uploadCompileLogs(
     context: CompilationContext,
   ): Promise<string> {
     const logS3Key = `compiles/${context.teamId}/v${context.version}/compile.log`;
+    const logs = await this.redisLogService.getLogHistory(context.submissionId);
     await this.storageService.uploadFile(
       logS3Key,
-      Buffer.from(context.compileLogs.join('\n')),
+      Buffer.from(logs.join('\n')),
       'text/plain',
     );
     return logS3Key;
@@ -450,6 +476,17 @@ export class CompileQueueConsumerService {
     });
   }
 
+  private async finalizeLogStream(
+    context: CompilationContext,
+    finalStatus: string,
+  ): Promise<void> {
+    await this.redisLogService.publishEvent(context.submissionId, {
+      type: 'complete',
+      status: finalStatus,
+    });
+    await this.redisLogService.deleteBuffer(context.submissionId);
+  }
+
   private async handleCompilationFailure(
     context: CompilationContext,
     submissionId: string,
@@ -462,7 +499,7 @@ export class CompileQueueConsumerService {
       `Compile job failed for submission ${submissionId}: ${errorMessage}`,
     );
 
-    context.compileLogs.push(`ERROR: ${errorMessage}`);
+    await this.appendLog(context, `ERROR: ${errorMessage}`);
 
     try {
       const logS3Key = await this.uploadCompileLogs(context);
@@ -481,6 +518,8 @@ export class CompileQueueConsumerService {
         errorMessage,
       );
     }
+
+    await this.finalizeLogStream(context, 'FAILED');
   }
 
   private async updateSubmissionFailureStatus(

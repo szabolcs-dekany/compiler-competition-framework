@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { SubmissionDto, SubmissionCompilationDto } from '@evaluator/shared';
-import { SubmissionStatus, CompilationStatus } from '@evaluator/shared';
+import { CompileStatus, CompilationStatus } from '@evaluator/shared';
 import { submissionQueries } from '@/lib/queries';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,29 +14,92 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ChevronDown, ChevronRight, Loader2, ExternalLink } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  ExternalLink,
+  CheckCircle,
+  XCircle,
+  Clock,
+} from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { cn } from '@/lib/utils';
 
 interface SubmissionsTableProps {
   submissions: SubmissionDto[];
 }
 
-const statusColors: Record<SubmissionStatus, string> = {
-  [SubmissionStatus.PENDING]: 'bg-gray-500',
-  [SubmissionStatus.BUILDING]: 'bg-blue-500',
-  [SubmissionStatus.READY]: 'bg-green-500',
-  [SubmissionStatus.EVALUATING]: 'bg-yellow-500',
-  [SubmissionStatus.COMPLETED]: 'bg-green-600',
-  [SubmissionStatus.FAILED]: 'bg-red-500',
-};
+function CompileStatusBadge({ status }: { status: CompileStatus }) {
+  if (status === CompileStatus.PENDING) {
+    return (
+      <Badge variant="secondary" className="gap-1">
+        <Clock className="h-3 w-3" />
+        Pending
+      </Badge>
+    );
+  }
 
-const compilationStatusColors: Record<CompilationStatus, string> = {
-  [CompilationStatus.PENDING]: 'bg-gray-400',
-  [CompilationStatus.IN_PROGRESS]: 'bg-blue-400',
-  [CompilationStatus.SUCCESS]: 'bg-green-500',
-  [CompilationStatus.FAILED]: 'bg-red-400',
-};
+  if (status === CompileStatus.RUNNING) {
+    return (
+      <Badge variant="default" className="gap-1">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Running
+      </Badge>
+    );
+  }
+
+  if (status === CompileStatus.SUCCESS) {
+    return (
+      <Badge variant="default" className="gap-1 bg-green-600 hover:bg-green-700">
+        <CheckCircle className="h-3 w-3" />
+        Success
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge variant="destructive" className="gap-1">
+      <XCircle className="h-3 w-3" />
+      Failed
+    </Badge>
+  );
+}
+
+function CompilationStatusBadge({ status }: { status: CompilationStatus }) {
+  if (status === CompilationStatus.PENDING) {
+    return (
+      <Badge variant="secondary" className="text-xs gap-1">
+        <Clock className="h-3 w-3" />
+        Pending
+      </Badge>
+    );
+  }
+
+  if (status === CompilationStatus.IN_PROGRESS) {
+    return (
+      <Badge variant="default" className="text-xs gap-1">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        In Progress
+      </Badge>
+    );
+  }
+
+  if (status === CompilationStatus.SUCCESS) {
+    return (
+      <Badge variant="default" className="text-xs gap-1 bg-green-600 hover:bg-green-700">
+        <CheckCircle className="h-3 w-3" />
+        Success
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge variant="destructive" className="text-xs gap-1">
+      <XCircle className="h-3 w-3" />
+      Failed
+    </Badge>
+  );
+}
 
 function CompilationsContent({ submissionId }: { submissionId: string }) {
   const { data: compilations, isLoading } = useQuery(
@@ -113,14 +176,7 @@ function CompilationDetailRow({
         </Badge>
       </TableCell>
       <TableCell className="py-2">
-        <Badge
-          className={cn(
-            'text-xs',
-            compilationStatusColors[compilation.status],
-          )}
-        >
-          {compilation.status}
-        </Badge>
+        <CompilationStatusBadge status={compilation.status} />
       </TableCell>
       <TableCell className="py-2 text-muted-foreground text-sm">
         {formatCompileTime(compilation)}
@@ -159,7 +215,7 @@ export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
           <TableHead className="w-10"></TableHead>
           <TableHead>Team</TableHead>
           <TableHead>Version</TableHead>
-          <TableHead>Status</TableHead>
+          <TableHead>Compile Status</TableHead>
           <TableHead>Score</TableHead>
           <TableHead>Submitted</TableHead>
         </TableRow>
@@ -186,9 +242,7 @@ export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
               </TableCell>
               <TableCell>v{submission.version}</TableCell>
               <TableCell>
-                <Badge className={statusColors[submission.status]}>
-                  {submission.status}
-                </Badge>
+                <CompileStatusBadge status={submission.compileStatus} />
               </TableCell>
               <TableCell>{submission.totalScore}</TableCell>
               <TableCell className="text-muted-foreground">
