@@ -21,6 +21,25 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { RedisLogService } from '../../../common/redis/redis-log.service';
 
+const DEFAULT_COMPILE_QUEUE_CONCURRENCY = 4;
+const DEFAULT_TEAM_LOCK_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_TEAM_LOCK_POLL_MS = 1000;
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const rawValue = process.env[name];
+  if (!rawValue) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const COMPILE_QUEUE_CONCURRENCY = readPositiveIntEnv(
+  'COMPILE_QUEUE_CONCURRENCY',
+  DEFAULT_COMPILE_QUEUE_CONCURRENCY,
+);
+
 interface CompilationContext {
   submissionId: string;
   teamId: string;
@@ -43,9 +62,21 @@ interface CompiledFileInfo {
   compiledS3Key: string;
 }
 
+interface TeamLock {
+  key: string;
+  value: string;
+}
+
+interface TeamLockHeartbeat {
+  stop: () => void;
+  throwIfLockLost: () => void;
+}
+
 @Processor('compile')
 export class CompileQueueConsumerService {
   private readonly logger = new Logger(CompileQueueConsumerService.name);
+  private readonly teamLockTtlMs: number;
+  private readonly teamLockPollMs: number;
 
   constructor(
     private readonly submissionsService: SubmissionsService,
@@ -56,16 +87,30 @@ export class CompileQueueConsumerService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly redisLogService: RedisLogService,
-  ) {}
+  ) {
+    this.teamLockTtlMs = this.configService.get<number>(
+      'COMPILE_TEAM_LOCK_TTL_MS',
+      DEFAULT_TEAM_LOCK_TTL_MS,
+    );
+    this.teamLockPollMs = this.configService.get<number>(
+      'COMPILE_TEAM_LOCK_POLL_MS',
+      DEFAULT_TEAM_LOCK_POLL_MS,
+    );
+  }
 
-  @Process()
+  @Process({ concurrency: COMPILE_QUEUE_CONCURRENCY })
   async processCompileJob(compileJob: bull.Job<CompileJobData>): Promise<void> {
     const { submissionId, teamId } = compileJob.data;
     const context = this.createCompilationContext(compileJob);
+    const lock = await this.waitForTeamLock(context);
+    const heartbeat = this.startTeamLockHeartbeat(context, lock);
 
-    this.logger.debug(`Compile queue job received: ${compileJob.id}`);
+    this.logger.debug(
+      `Compile queue job received: ${compileJob.id} for team ${teamId}`,
+    );
 
     try {
+      heartbeat.throwIfLockLost();
       const prerequisites = await this.validatePrerequisites(teamId);
       if (!prerequisites) {
         this.logger.warn(
@@ -86,13 +131,16 @@ export class CompileQueueConsumerService {
         prerequisites.sourceFiles,
       );
 
+      heartbeat.throwIfLockLost();
       await this.initializeJobState(submissionId);
       await this.prepareWorkspace(context, prerequisites);
+      heartbeat.throwIfLockLost();
       const compiledFiles = await this.compileAllSourceFiles(
         context,
         prerequisites,
         compilationIdMap,
       );
+      heartbeat.throwIfLockLost();
       await this.persistCompilationResults(
         context,
         submissionId,
@@ -102,8 +150,115 @@ export class CompileQueueConsumerService {
     } catch (error) {
       await this.handleCompilationFailure(context, submissionId, error);
     } finally {
+      heartbeat.stop();
+      await this.releaseTeamLock(context, lock);
       this.cleanupWorkspace(context);
     }
+  }
+
+  private async waitForTeamLock(
+    context: CompilationContext,
+  ): Promise<TeamLock> {
+    const key = this.teamLockKey(context.teamId);
+    const value = `${context.jobId}:${Date.now()}`;
+
+    while (true) {
+      const acquired = await this.redisLogService.acquireLock(
+        key,
+        value,
+        this.teamLockTtlMs,
+      );
+
+      if (acquired) {
+        this.logger.debug(
+          `Compile team lock acquired for team ${context.teamId} by job ${context.jobId}`,
+        );
+        return { key, value };
+      }
+
+      this.logger.debug(
+        `Compile job ${context.jobId} waiting for team lock ${context.teamId}`,
+      );
+      await this.sleep(this.teamLockPollMs);
+    }
+  }
+
+  private startTeamLockHeartbeat(
+    context: CompilationContext,
+    lock: TeamLock,
+  ): TeamLockHeartbeat {
+    let active = true;
+    let lockLossError: Error | null = null;
+
+    const heartbeatPromise = (async () => {
+      while (active) {
+        await this.sleep(Math.max(1000, Math.floor(this.teamLockTtlMs / 3)));
+        if (!active) {
+          break;
+        }
+
+        const extended = await this.redisLogService.extendLock(
+          lock.key,
+          lock.value,
+          this.teamLockTtlMs,
+        );
+
+        if (!extended) {
+          lockLossError = new Error(
+            `Lost compile team lock for team ${context.teamId} while processing submission ${context.submissionId}`,
+          );
+          this.logger.error(lockLossError.message);
+          active = false;
+          break;
+        }
+      }
+    })().catch((error: unknown) => {
+      const message =
+        error instanceof Error ? error.message : 'Unknown lock heartbeat error';
+      lockLossError = new Error(message);
+      this.logger.error(message);
+    });
+
+    return {
+      stop: () => {
+        active = false;
+        void heartbeatPromise.catch(() => undefined);
+      },
+      throwIfLockLost: () => {
+        if (lockLossError) {
+          throw lockLossError;
+        }
+      },
+    };
+  }
+
+  private async releaseTeamLock(
+    context: CompilationContext,
+    lock: TeamLock,
+  ): Promise<void> {
+    const released = await this.redisLogService.releaseLock(
+      lock.key,
+      lock.value,
+    );
+
+    if (!released) {
+      this.logger.warn(
+        `Compile team lock for team ${context.teamId} was already released before job ${context.jobId} finished`,
+      );
+      return;
+    }
+
+    this.logger.debug(
+      `Compile team lock released for team ${context.teamId} by job ${context.jobId}`,
+    );
+  }
+
+  private teamLockKey(teamId: string): string {
+    return `lock:compile:team:${teamId}`;
+  }
+
+  private async sleep(durationMs: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, durationMs));
   }
 
   private createCompilationContext(
@@ -229,7 +384,7 @@ export class CompileQueueConsumerService {
   ): Promise<CompiledFileInfo[]> {
     const compileTimeoutMs = this.configService.get<number>(
       'DOCKER_COMPILE_TIMEOUT_MS',
-      60000,
+      120000,
     );
     const compiledFiles: CompiledFileInfo[] = [];
 

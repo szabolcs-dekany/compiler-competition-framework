@@ -17,6 +17,7 @@ interface StreamEventShape {
 }
 
 type RedisStreamEntry = [id: string, fields: string[]];
+type RedisSetResult = 'OK' | null;
 
 @Injectable()
 export class RedisLogService implements OnModuleDestroy {
@@ -181,6 +182,59 @@ export class RedisLogService implements OnModuleDestroy {
         ? [event.message]
         : [],
     );
+  }
+
+  async acquireLock(
+    key: string,
+    value: string,
+    ttlMs: number,
+  ): Promise<boolean> {
+    const result = (await this.publisher.set(
+      key,
+      value,
+      'PX',
+      ttlMs,
+      'NX',
+    )) as RedisSetResult;
+
+    return result === 'OK';
+  }
+
+  async extendLock(
+    key: string,
+    value: string,
+    ttlMs: number,
+  ): Promise<boolean> {
+    const result = await this.publisher.eval(
+      `
+        if redis.call("get", KEYS[1]) == ARGV[1] then
+          return redis.call("pexpire", KEYS[1], ARGV[2])
+        end
+        return 0
+      `,
+      1,
+      key,
+      value,
+      String(ttlMs),
+    );
+
+    return result === 1;
+  }
+
+  async releaseLock(key: string, value: string): Promise<boolean> {
+    const result = await this.publisher.eval(
+      `
+        if redis.call("get", KEYS[1]) == ARGV[1] then
+          return redis.call("del", KEYS[1])
+        end
+        return 0
+      `,
+      1,
+      key,
+      value,
+    );
+
+    return result === 1;
   }
 
   subscribeWithReplay<TEvent extends StreamEventShape>(
