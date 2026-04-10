@@ -50,5 +50,5 @@ export function useEventSource({
     return () => {
       eventSource.close();
     };
-  }, [enabled, onErrorEvent, onMessageEvent, url]);
+  }, [enabled, url]);
 }
