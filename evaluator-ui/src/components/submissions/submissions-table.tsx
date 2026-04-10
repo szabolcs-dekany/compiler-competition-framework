@@ -29,6 +29,12 @@ interface SubmissionsTableProps {
   submissions: SubmissionDto[];
 }
 
+/**
+ * Render a status Badge with an icon and label for the given compile status.
+ *
+ * @param status - The compile status to display (e.g., `PENDING`, `RUNNING`, `SUCCESS`, or other failure statuses)
+ * @returns The Badge element corresponding to `status`
+ */
 function CompileStatusBadge({ status }: { status: CompileStatus }) {
   if (status === CompileStatus.PENDING) {
     return (
@@ -65,6 +71,12 @@ function CompileStatusBadge({ status }: { status: CompileStatus }) {
   );
 }
 
+/**
+ * Render a compact badge showing a compilation status with an icon and label.
+ *
+ * @param status - The compilation status to display
+ * @returns A badge JSX element with an icon and text corresponding to `status`
+ */
 function CompilationStatusBadge({ status }: { status: CompilationStatus }) {
   if (status === CompilationStatus.PENDING) {
     return (
@@ -101,6 +113,17 @@ function CompilationStatusBadge({ status }: { status: CompilationStatus }) {
   );
 }
 
+/**
+ * Render a list of compilations for a given submission.
+ *
+ * Fetches compilations for the provided submission id and displays one of:
+ * - A centered loading indicator while the query is loading
+ * - A centered "No compilations yet" message when there are no compilations
+ * - A table of compilation rows when compilations are available
+ *
+ * @param submissionId - The submission identifier used to fetch its compilations
+ * @returns The compilation list UI (loading, empty state, or table of compilations)
+ */
 function CompilationsContent({ submissionId }: { submissionId: string }) {
   const { data: compilations, isLoading } = useQuery(
     submissionQueries.compilations(submissionId),
@@ -150,6 +173,12 @@ function CompilationsContent({ submissionId }: { submissionId: string }) {
   );
 }
 
+/**
+ * Format a compilation's duration as a milliseconds string.
+ *
+ * @param compilation - Compilation object containing `startedAt` and `completedAt` timestamps
+ * @returns `"-"` if `startedAt` or `completedAt` is missing, otherwise the elapsed time as a string like `"123ms"`
+ */
 function formatCompileTime(compilation: SubmissionCompilationDto): string {
   if (!compilation.startedAt || !compilation.completedAt) {
     return '-';
@@ -160,6 +189,14 @@ function formatCompileTime(compilation: SubmissionCompilationDto): string {
   return `${ms}ms`;
 }
 
+/**
+ * Renders a table row summarizing a single compilation entry.
+ *
+ * Displays the test case name, a category badge, the compilation status badge, and the formatted compile time.
+ *
+ * @param compilation - The compilation record to render (includes test case details, status, and timestamps)
+ * @returns A table row element containing cells for test case name, category, status, and compile time
+ */
 function CompilationDetailRow({
   compilation,
 }: {
@@ -185,6 +222,12 @@ function CompilationDetailRow({
   );
 }
 
+/**
+ * Render a table of submissions with expandable rows that reveal compilation details for each submission.
+ *
+ * @param submissions - List of submission records to display; each row shows team, version, compile status, score, and submitted time.
+ * @returns A table element where each submission row can be expanded to show a "View Details" link and its compilations.
+ */
 export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
