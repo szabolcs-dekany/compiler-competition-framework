@@ -31,6 +31,7 @@ import type {
   BuildLogEvent,
 } from '@evaluator/shared';
 import { RedisLogService } from '../../common/redis/redis-log.service';
+import { isBuildLogEvent } from '../../common/redis/stream-event-guards';
 import { DockerfilesService } from './dockerfiles.service';
 import { DockerfileEntity } from './entities/dockerfile.entity';
 import { DockerfileVersionEntity } from './entities/dockerfile-version.entity';
@@ -203,6 +204,8 @@ export class DockerfilesController {
               subscriber.complete();
             }
           },
+          '0',
+          isBuildLogEvent,
         );
 
       let stopped = false;

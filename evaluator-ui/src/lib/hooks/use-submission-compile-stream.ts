@@ -74,7 +74,19 @@ export function useSubmissionCompileStream({
     url: submissionsApi.getCompileLogStreamUrl(submissionId),
     enabled: shouldStream,
     onMessage: (data, close) => {
-      const event = JSON.parse(data) as CompileLogEvent;
+      let event: CompileLogEvent;
+
+      try {
+        event = JSON.parse(data) as CompileLogEvent;
+      } catch (error: unknown) {
+        console.error("Failed to parse CompileLogEvent during SSE handling", {
+          submissionId,
+          data,
+          error,
+        });
+        close();
+        return;
+      }
 
       if (event.type === "log") {
         onLog?.(event.message);

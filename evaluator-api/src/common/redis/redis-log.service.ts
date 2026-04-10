@@ -137,7 +137,10 @@ export class RedisLogService implements OnModuleDestroy {
     );
   }
 
-  private async appendEvent(channel: string, event: LogEvent): Promise<void> {
+  private async appendEvent<TEvent extends StreamEventShape>(
+    channel: string,
+    event: TEvent,
+  ): Promise<void> {
     await this.publisher.xadd(
       this.streamKey(channel),
       '*',
@@ -167,7 +170,7 @@ export class RedisLogService implements OnModuleDestroy {
     channel: string,
     event: TEvent,
   ): Promise<void> {
-    await this.appendEvent(channel, event as unknown as LogEvent);
+    await this.appendEvent(channel, event);
   }
 
   async getLogHistory(channel: string): Promise<string[]> {
@@ -184,6 +187,7 @@ export class RedisLogService implements OnModuleDestroy {
     channel: string,
     handler: (event: TEvent) => void,
     fromId = '0',
+    isTEvent?: (event: unknown) => event is TEvent,
   ): Promise<() => Promise<void>> {
     const reader = this.createReader(channel);
     const key = this.streamKey(channel);
@@ -212,6 +216,18 @@ export class RedisLogService implements OnModuleDestroy {
 
             const event = this.parseStreamEvent(channel, entryId, fields);
             if (!event) {
+              continue;
+            }
+
+            if (isTEvent) {
+              if (!isTEvent(event)) {
+                this.logger.warn(
+                  `Skipping invalid replayed event on ${channel} at ${entryId}`,
+                );
+                continue;
+              }
+
+              handler(event);
               continue;
             }
 

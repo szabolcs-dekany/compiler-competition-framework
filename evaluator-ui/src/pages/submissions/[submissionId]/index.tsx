@@ -98,8 +98,8 @@ export function SubmissionDetailPage() {
   });
 
   const shouldFetchLogs =
-    submission?.compileStatus === "SUCCESS" ||
-    submission?.compileStatus === "FAILED";
+    submission?.compileStatus === CompileStatus.SUCCESS ||
+    submission?.compileStatus === CompileStatus.FAILED;
   const { data: storedLogs, isLoading: logsLoading } = useQuery({
     ...submissionQueries.compileLogs(submissionId),
     enabled: shouldFetchLogs && !!submission?.compileLogS3Key,

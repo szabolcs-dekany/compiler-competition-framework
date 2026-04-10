@@ -26,6 +26,7 @@ import type {
   CompileLogEvent,
 } from '@evaluator/shared';
 import { RedisLogService } from '../../common/redis/redis-log.service';
+import { isCompileLogEvent } from '../../common/redis/stream-event-guards';
 import { SubmissionsService } from './submissions.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
@@ -152,6 +153,8 @@ export class SubmissionsController {
               subscriber.complete();
             }
           },
+          '0',
+          isCompileLogEvent,
         );
 
       let stopped = false;

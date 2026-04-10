@@ -49,7 +49,20 @@ export function useDockerfileBuildStream({
     url: dockerfilesApi.getBuildLogStreamUrl(dockerfileId, version),
     enabled: shouldStream,
     onMessage: (data, close) => {
-      const event = JSON.parse(data) as BuildLogEvent;
+      let event: BuildLogEvent;
+
+      try {
+        event = JSON.parse(data) as BuildLogEvent;
+      } catch (error: unknown) {
+        console.error("Failed to parse BuildLogEvent from SSE payload", {
+          dockerfileId,
+          version,
+          data,
+          error,
+        });
+        close();
+        return;
+      }
 
       if (event.type === "log") {
         onLog?.(event.message);
