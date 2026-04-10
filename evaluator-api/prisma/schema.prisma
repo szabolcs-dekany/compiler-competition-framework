@@ -171,13 +171,6 @@ enum CompileStatus {
   FAILED
 }
 
-enum SourceFileCompileStatus {
-  PENDING
-  IN_PROGRESS
-  SUCCESS
-  FAILED
-}
-
 enum CompilationStatus {
   PENDING
   IN_PROGRESS
