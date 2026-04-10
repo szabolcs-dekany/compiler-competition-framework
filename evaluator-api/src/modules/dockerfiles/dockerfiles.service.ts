@@ -176,19 +176,7 @@ export class DockerfilesService {
       orderBy: { version: 'desc' },
     });
 
-    return versions.map((v) => ({
-      id: v.id,
-      dockerfileId: v.dockerfileId,
-      version: v.version,
-      size: v.size,
-      checksum: v.checksum,
-      uploadedAt: v.uploadedAt.toISOString(),
-      buildStatus: v.buildStatus,
-      buildLogS3Key: v.buildLogS3Key,
-      buildStartedAt: v.buildStartedAt?.toISOString() ?? null,
-      buildCompletedAt: v.buildCompletedAt?.toISOString() ?? null,
-      buildError: v.buildError,
-    }));
+    return versions.map((v) => this.toVersionDto(v));
   }
 
   async getVersion(
@@ -207,19 +195,7 @@ export class DockerfilesService {
       );
     }
 
-    return {
-      id: versionRecord.id,
-      dockerfileId: versionRecord.dockerfileId,
-      version: versionRecord.version,
-      size: versionRecord.size,
-      checksum: versionRecord.checksum,
-      uploadedAt: versionRecord.uploadedAt.toISOString(),
-      buildStatus: versionRecord.buildStatus,
-      buildLogS3Key: versionRecord.buildLogS3Key,
-      buildStartedAt: versionRecord.buildStartedAt?.toISOString() ?? null,
-      buildCompletedAt: versionRecord.buildCompletedAt?.toISOString() ?? null,
-      buildError: versionRecord.buildError,
-    };
+    return this.toVersionDto(versionRecord);
   }
 
   async getBuildLogs(dockerfileId: string, version: number): Promise<string> {
@@ -372,6 +348,34 @@ export class DockerfilesService {
       uploadedAt: df.uploadedAt.toISOString(),
       s3Key: df.s3Key,
       imageName: df.imageName,
+    };
+  }
+
+  private toVersionDto(versionRecord: {
+    id: string;
+    dockerfileId: string;
+    version: number;
+    size: number;
+    checksum: string;
+    uploadedAt: Date;
+    buildStatus: DockerfileVersionDto['buildStatus'];
+    buildLogS3Key: string | null;
+    buildStartedAt: Date | null;
+    buildCompletedAt: Date | null;
+    buildError: string | null;
+  }): DockerfileVersionDto {
+    return {
+      id: versionRecord.id,
+      dockerfileId: versionRecord.dockerfileId,
+      version: versionRecord.version,
+      size: versionRecord.size,
+      checksum: versionRecord.checksum,
+      uploadedAt: versionRecord.uploadedAt.toISOString(),
+      buildStatus: versionRecord.buildStatus,
+      buildLogS3Key: versionRecord.buildLogS3Key,
+      buildStartedAt: versionRecord.buildStartedAt?.toISOString() ?? null,
+      buildCompletedAt: versionRecord.buildCompletedAt?.toISOString() ?? null,
+      buildError: versionRecord.buildError,
     };
   }
 

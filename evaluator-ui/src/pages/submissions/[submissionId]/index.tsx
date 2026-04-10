@@ -1,15 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
-import { useParams, Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import type { CompileLogEvent } from '@evaluator/shared';
-import { CompileStatus } from '@evaluator/shared';
-import { submissionQueries, teamQueries } from '@/lib/queries';
-import { submissionsApi } from '@/lib/api-client';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, CheckCircle, XCircle, Clock } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { useEffect, useRef, useState } from "react";
+import { useParams, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { CompileStatus } from "@evaluator/shared";
+import { submissionQueries, teamQueries } from "@/lib/queries";
+import { useSubmissionCompileStream } from "@/lib/hooks/use-submission-compile-stream";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, Loader2, CheckCircle, XCircle, Clock } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 
 function CompileStatusBadge({ status }: { status: CompileStatus }) {
   if (status === CompileStatus.PENDING) {
@@ -32,7 +31,10 @@ function CompileStatusBadge({ status }: { status: CompileStatus }) {
 
   if (status === CompileStatus.SUCCESS) {
     return (
-      <Badge variant="default" className="gap-1 bg-green-600 hover:bg-green-700">
+      <Badge
+        variant="default"
+        className="gap-1 bg-green-600 hover:bg-green-700"
+      >
         <CheckCircle className="h-3 w-3" />
         Success
       </Badge>
@@ -48,52 +50,19 @@ function CompileStatusBadge({ status }: { status: CompileStatus }) {
 }
 
 function CompileLogViewer({
-  initialLogs,
+  logs,
   isLoading,
-  status,
-  submissionId,
 }: {
-  initialLogs: string[];
+  logs: string[];
   isLoading: boolean;
-  status: CompileStatus;
-  submissionId: string;
 }) {
   const logContainerRef = useRef<HTMLPreElement>(null);
-  const [logs, setLogs] = useState<string[]>(initialLogs);
-
-  useEffect(() => {
-    setLogs(initialLogs);
-  }, [initialLogs]);
 
   useEffect(() => {
     if (logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
   }, [logs]);
-
-  useEffect(() => {
-    if (status !== CompileStatus.RUNNING) return;
-
-    const eventSource = new EventSource(
-      submissionsApi.getCompileLogStreamUrl(submissionId),
-    );
-
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data) as CompileLogEvent;
-      if (data.type === 'log' && data.message) {
-        setLogs((prev) => [...prev, data.message!]);
-      }
-      if (data.type === 'complete' || data.type === 'error') {
-        eventSource.close();
-      }
-    };
-
-    eventSource.onerror = () => {
-      eventSource.close();
-    };
-
-    return () => eventSource.close();
-  }, [status, submissionId]);
 
   if (isLoading) {
     return (
@@ -119,21 +88,38 @@ function CompileLogViewer({
 }
 
 export function SubmissionDetailPage() {
-  const { submissionId } = useParams({ from: '/submissions/$submissionId' });
+  const { submissionId } = useParams({ from: "/submissions/$submissionId" });
+  const [liveLogs, setLiveLogs] = useState<string[]>([]);
 
   const { data: submission } = useQuery(submissionQueries.detail(submissionId));
   const { data: team } = useQuery({
-    ...teamQueries.detail(submission?.teamId ?? ''),
+    ...teamQueries.detail(submission?.teamId ?? ""),
     enabled: !!submission?.teamId,
   });
 
-  const shouldFetchLogs = submission?.compileStatus === 'SUCCESS' || submission?.compileStatus === 'FAILED';
+  const shouldFetchLogs =
+    submission?.compileStatus === "SUCCESS" ||
+    submission?.compileStatus === "FAILED";
   const { data: storedLogs, isLoading: logsLoading } = useQuery({
     ...submissionQueries.compileLogs(submissionId),
     enabled: shouldFetchLogs && !!submission?.compileLogS3Key,
   });
 
-  const initialLogs = storedLogs?.logs ? storedLogs.logs.split('\n') : [];
+  useEffect(() => {
+    setLiveLogs([]);
+  }, [submissionId]);
+
+  useSubmissionCompileStream({
+    submissionId,
+    status: submission?.compileStatus ?? CompileStatus.PENDING,
+    enabled: !!submission,
+    onLog: (message) => {
+      setLiveLogs((current) => [...current, message]);
+    },
+  });
+
+  const storedLogLines = storedLogs?.logs ? storedLogs.logs.split("\n") : [];
+  const logs = storedLogLines.length > 0 ? storedLogLines : liveLogs;
 
   return (
     <div className="space-y-6">
@@ -154,19 +140,23 @@ export function SubmissionDetailPage() {
           <CardContent className="space-y-3">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Team</span>
-              <span className="font-medium">{team?.name ?? 'Loading...'}</span>
+              <span className="font-medium">{team?.name ?? "Loading..."}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Version</span>
-              <span className="font-medium">v{submission?.version ?? '...'}</span>
+              <span className="font-medium">
+                v{submission?.version ?? "..."}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">File</span>
-              <span className="font-medium">{submission?.originalName ?? '...'}</span>
+              <span className="font-medium">
+                {submission?.originalName ?? "..."}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Status</span>
-              <span className="font-medium">{submission?.status ?? '...'}</span>
+              <span className="font-medium">{submission?.status ?? "..."}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Score</span>
@@ -176,8 +166,10 @@ export function SubmissionDetailPage() {
               <span className="text-muted-foreground">Submitted</span>
               <span>
                 {submission
-                  ? formatDistanceToNow(new Date(submission.submittedAt), { addSuffix: true })
-                  : '...'}
+                  ? formatDistanceToNow(new Date(submission.submittedAt), {
+                      addSuffix: true,
+                    })
+                  : "..."}
               </span>
             </div>
           </CardContent>
@@ -190,13 +182,17 @@ export function SubmissionDetailPage() {
           <CardContent className="space-y-3">
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Status</span>
-              {submission && <CompileStatusBadge status={submission.compileStatus} />}
+              {submission && (
+                <CompileStatusBadge status={submission.compileStatus} />
+              )}
             </div>
             {submission?.compileStartedAt && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Started</span>
                 <span>
-                  {formatDistanceToNow(new Date(submission.compileStartedAt), { addSuffix: true })}
+                  {formatDistanceToNow(new Date(submission.compileStartedAt), {
+                    addSuffix: true,
+                  })}
                 </span>
               </div>
             )}
@@ -204,7 +200,10 @@ export function SubmissionDetailPage() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Completed</span>
                 <span>
-                  {formatDistanceToNow(new Date(submission.compileCompletedAt), { addSuffix: true })}
+                  {formatDistanceToNow(
+                    new Date(submission.compileCompletedAt),
+                    { addSuffix: true },
+                  )}
                 </span>
               </div>
             )}
@@ -223,10 +222,8 @@ export function SubmissionDetailPage() {
         </CardHeader>
         <CardContent>
           <CompileLogViewer
-            initialLogs={initialLogs}
+            logs={logs}
             isLoading={logsLoading && shouldFetchLogs}
-            status={submission?.compileStatus ?? CompileStatus.PENDING}
-            submissionId={submissionId}
           />
         </CardContent>
       </Card>

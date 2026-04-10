@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { Process, Processor } from '@nestjs/bull';
 import bull from 'bull';
+import type { BuildLogEvent, DockerfileVersionDto } from '@evaluator/shared';
 import { DockerBuildJobData } from '../dto/jobs.dto';
 import { DockerfilesService } from '../../dockerfiles/dockerfiles.service';
 import { StorageService } from '../../../common/storage/storage.service';
@@ -49,13 +50,15 @@ export class DockerfileQueueConsumerService {
     try {
       const imageResult = await this.executeBuild(ctx, dockerfile);
       const logS3Key = await this.uploadBuildLogs(ctx);
-      await this.updateBuildStatus(ctx, 'SUCCESS', { logS3Key });
+      const version = await this.updateBuildStatus(ctx, 'SUCCESS', {
+        logS3Key,
+      });
       await this.dockerfilesService.updateImageName(
         ctx.dockerfileId,
         imageResult.imageName,
       );
       this.logger.log(`Built and saved image: ${imageResult.imageName}`);
-      await this.finalizeLogStream(ctx, 'SUCCESS');
+      await this.finalizeLogStream(ctx, version);
     } catch (error) {
       await this.handleBuildFailure(ctx, error);
     }
@@ -87,7 +90,11 @@ export class DockerfileQueueConsumerService {
   }
 
   private async initializeBuildStatus(ctx: BuildContext): Promise<void> {
-    await this.updateBuildStatus(ctx, 'BUILDING');
+    const version = await this.updateBuildStatus(ctx, 'BUILDING');
+    await this.publishBuildEvent(ctx, {
+      type: 'status',
+      version,
+    });
   }
 
   private async executeBuild(ctx: BuildContext, dockerfile: { s3Key: string }) {
@@ -121,7 +128,7 @@ export class DockerfileQueueConsumerService {
     ctx: BuildContext,
     status: 'BUILDING' | 'SUCCESS' | 'FAILED',
     opts?: { logS3Key?: string; error?: string },
-  ): Promise<void> {
+  ): Promise<DockerfileVersionDto> {
     await this.prisma.dockerfileVersion.update({
       where: {
         dockerfileId_version: {
@@ -131,20 +138,38 @@ export class DockerfileQueueConsumerService {
       },
       data: {
         buildStatus: status,
-        ...(status !== 'BUILDING' && { buildCompletedAt: new Date() }),
+        ...(status === 'BUILDING'
+          ? {
+              buildStartedAt: new Date(),
+              buildCompletedAt: null,
+              buildLogS3Key: null,
+              buildError: null,
+            }
+          : {
+              buildCompletedAt: new Date(),
+            }),
         ...(opts?.logS3Key && { buildLogS3Key: opts.logS3Key }),
         ...(opts?.error && { buildError: opts.error }),
       },
     });
+
+    return this.dockerfilesService.getVersion(ctx.dockerfileId, ctx.version);
+  }
+
+  private async publishBuildEvent(
+    ctx: BuildContext,
+    event: Extract<BuildLogEvent, { type: 'status' | 'complete' }>,
+  ): Promise<void> {
+    await this.redisLogService.publishEvent(ctx.channel, event);
   }
 
   private async finalizeLogStream(
     ctx: BuildContext,
-    status: string,
+    version: DockerfileVersionDto,
   ): Promise<void> {
-    await this.redisLogService.publishEvent(ctx.channel, {
+    await this.publishBuildEvent(ctx, {
       type: 'complete',
-      status,
+      version,
     });
   }
 
@@ -154,8 +179,10 @@ export class DockerfileQueueConsumerService {
   ): Promise<void> {
     this.logger.warn(errorMessage);
 
-    await this.updateBuildStatus(ctx, 'FAILED', { error: errorMessage });
-    await this.finalizeLogStream(ctx, 'FAILED');
+    const version = await this.updateBuildStatus(ctx, 'FAILED', {
+      error: errorMessage,
+    });
+    await this.finalizeLogStream(ctx, version);
   }
 
   private async handleBuildFailure(
@@ -176,17 +203,19 @@ export class DockerfileQueueConsumerService {
 
     try {
       const logS3Key = await this.uploadBuildLogs(ctx);
-      await this.updateBuildStatus(ctx, 'FAILED', {
+      const version = await this.updateBuildStatus(ctx, 'FAILED', {
         logS3Key,
         error: errorMessage,
       });
+      await this.finalizeLogStream(ctx, version);
     } catch (uploadError) {
       this.logger.error(
         `Failed to upload error logs: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`,
       );
-      await this.updateBuildStatus(ctx, 'FAILED', { error: errorMessage });
+      const version = await this.updateBuildStatus(ctx, 'FAILED', {
+        error: errorMessage,
+      });
+      await this.finalizeLogStream(ctx, version);
     }
-
-    await this.finalizeLogStream(ctx, 'FAILED');
   }
 }

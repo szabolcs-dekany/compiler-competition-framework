@@ -1,11 +1,16 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
-import type { DockerfileListDto, DockerfileVersionDto, BuildStatus } from '@evaluator/shared';
-import { dockerfileQueries } from '@/lib/queries';
-import { useDownloadDockerfile } from '@/lib/hooks/use-dockerfiles-mutations';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import type {
+  DockerfileListDto,
+  DockerfileVersionDto,
+  BuildStatus,
+} from "@evaluator/shared";
+import { useDockerfileBuildStream } from "@/lib/hooks/use-dockerfile-build-stream";
+import { dockerfileQueries } from "@/lib/queries";
+import { useDownloadDockerfile } from "@/lib/hooks/use-dockerfiles-mutations";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -13,16 +18,25 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { ChevronDown, ChevronRight, Loader2, Download, CheckCircle, XCircle, Clock, ExternalLink } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+} from "@/components/ui/table";
+import {
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Download,
+  CheckCircle,
+  XCircle,
+  Clock,
+  ExternalLink,
+} from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 
 interface DockerfilesTableProps {
   dockerfiles: DockerfileListDto[];
 }
 
 function BuildStatusBadge({ status }: { status: BuildStatus }) {
-  if (status === 'PENDING') {
+  if (status === "PENDING") {
     return (
       <Badge variant="secondary" className="gap-1">
         <Clock className="h-3 w-3" />
@@ -31,7 +45,7 @@ function BuildStatusBadge({ status }: { status: BuildStatus }) {
     );
   }
 
-  if (status === 'BUILDING') {
+  if (status === "BUILDING") {
     return (
       <Badge variant="default" className="gap-1">
         <Loader2 className="h-3 w-3 animate-spin" />
@@ -40,9 +54,12 @@ function BuildStatusBadge({ status }: { status: BuildStatus }) {
     );
   }
 
-  if (status === 'SUCCESS') {
+  if (status === "SUCCESS") {
     return (
-      <Badge variant="default" className="gap-1 bg-green-600 hover:bg-green-700">
+      <Badge
+        variant="default"
+        className="gap-1 bg-green-600 hover:bg-green-700"
+      >
         <CheckCircle className="h-3 w-3" />
         Success
       </Badge>
@@ -57,8 +74,67 @@ function BuildStatusBadge({ status }: { status: BuildStatus }) {
   );
 }
 
+function DockerfileVersionRow({
+  dockerfileId,
+  version,
+  onDownload,
+}: {
+  dockerfileId: string;
+  version: DockerfileVersionDto;
+  onDownload: (version: DockerfileVersionDto) => void;
+}) {
+  useDockerfileBuildStream({
+    dockerfileId,
+    version: version.version,
+    buildStatus: version.buildStatus,
+  });
+
+  return (
+    <TableRow className="border-0 hover:bg-muted/30">
+      <TableCell className="py-2 pl-4">v{version.version}</TableCell>
+      <TableCell className="py-2">
+        <BuildStatusBadge status={version.buildStatus} />
+      </TableCell>
+      <TableCell className="py-2">
+        {(version.size / 1024).toFixed(1)} KB
+      </TableCell>
+      <TableCell className="py-2 font-mono text-sm">
+        {version.checksum.slice(0, 8)}...
+      </TableCell>
+      <TableCell className="py-2 text-muted-foreground text-sm">
+        {formatDistanceToNow(new Date(version.uploadedAt), { addSuffix: true })}
+      </TableCell>
+      <TableCell className="py-2">
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" asChild>
+            <Link
+              to="/dockerfiles/$dockerfileId/versions/$version"
+              params={{
+                dockerfileId,
+                version: String(version.version),
+              }}
+            >
+              <ExternalLink className="h-3 w-3" />
+            </Link>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            onClick={() => onDownload(version)}
+          >
+            <Download className="h-3 w-3" />
+          </Button>
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}
+
 function VersionsContent({ dockerfileId }: { dockerfileId: string }) {
-  const { data: versions, isLoading } = useQuery(dockerfileQueries.versions(dockerfileId));
+  const { data: versions, isLoading } = useQuery(
+    dockerfileQueries.versions(dockerfileId),
+  );
   const downloadDockerfile = useDownloadDockerfile();
 
   if (isLoading) {
@@ -72,7 +148,9 @@ function VersionsContent({ dockerfileId }: { dockerfileId: string }) {
 
   if (!versions || versions.length === 0) {
     return (
-      <div className="text-center py-4 text-muted-foreground">No versions found</div>
+      <div className="text-center py-4 text-muted-foreground">
+        No versions found
+      </div>
     );
   }
 
@@ -88,52 +166,81 @@ function VersionsContent({ dockerfileId }: { dockerfileId: string }) {
     <Table>
       <TableHeader>
         <TableRow className="border-0 hover:bg-transparent">
-          <TableHead className="text-xs text-muted-foreground h-8">Version</TableHead>
-          <TableHead className="text-xs text-muted-foreground h-8">Build Status</TableHead>
-          <TableHead className="text-xs text-muted-foreground h-8">Size</TableHead>
-          <TableHead className="text-xs text-muted-foreground h-8">Checksum</TableHead>
-          <TableHead className="text-xs text-muted-foreground h-8">Uploaded</TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">
+            Version
+          </TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">
+            Build Status
+          </TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">
+            Size
+          </TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">
+            Checksum
+          </TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">
+            Uploaded
+          </TableHead>
           <TableHead className="text-xs text-muted-foreground h-8 w-20"></TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {versions.map((v) => (
-          <TableRow key={v.id} className="border-0 hover:bg-muted/30">
-            <TableCell className="py-2 pl-4">v{v.version}</TableCell>
-            <TableCell className="py-2">
-              <BuildStatusBadge status={v.buildStatus} />
-            </TableCell>
-            <TableCell className="py-2">{(v.size / 1024).toFixed(1)} KB</TableCell>
-            <TableCell className="py-2 font-mono text-sm">{v.checksum.slice(0, 8)}...</TableCell>
-            <TableCell className="py-2 text-muted-foreground text-sm">
-              {formatDistanceToNow(new Date(v.uploadedAt), { addSuffix: true })}
-            </TableCell>
-            <TableCell className="py-2">
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0"
-                  asChild
-                >
-                  <Link to="/dockerfiles/$dockerfileId/versions/$version" params={{ dockerfileId, version: String(v.version) }}>
-                    <ExternalLink className="h-3 w-3" />
-                  </Link>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0"
-                  onClick={() => handleDownload(v)}
-                >
-                  <Download className="h-3 w-3" />
-                </Button>
-              </div>
-            </TableCell>
-          </TableRow>
+          <DockerfileVersionRow
+            key={v.id}
+            dockerfileId={dockerfileId}
+            version={v}
+            onDownload={handleDownload}
+          />
         ))}
       </TableBody>
     </Table>
+  );
+}
+
+function DockerfileTableRow({
+  dockerfile,
+  expanded,
+  onToggle,
+}: {
+  dockerfile: DockerfileListDto;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <>
+      <TableRow className="cursor-pointer hover:bg-muted/50" onClick={onToggle}>
+        <TableCell className="w-10">
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+            {expanded ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+          </Button>
+        </TableCell>
+        <TableCell className="font-medium">{dockerfile.teamName}</TableCell>
+        <TableCell>v{dockerfile.version}</TableCell>
+        <TableCell>{(dockerfile.size / 1024).toFixed(1)} KB</TableCell>
+        <TableCell className="font-mono text-sm">
+          {dockerfile.checksum.slice(0, 8)}...
+        </TableCell>
+        <TableCell className="text-muted-foreground">
+          {formatDistanceToNow(new Date(dockerfile.uploadedAt), {
+            addSuffix: true,
+          })}
+        </TableCell>
+      </TableRow>
+      {expanded && (
+        <TableRow>
+          <TableCell colSpan={6} className="p-0 border-0">
+            <div className="pl-10 pr-4">
+              <VersionsContent dockerfileId={dockerfile.id} />
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   );
 }
 
@@ -174,39 +281,12 @@ export function DockerfilesTable({ dockerfiles }: DockerfilesTableProps) {
       </TableHeader>
       <TableBody>
         {dockerfiles.map((df) => (
-          <>
-            <TableRow
-              key={df.id}
-              className="cursor-pointer hover:bg-muted/50"
-              onClick={() => toggleRow(df.id)}
-            >
-              <TableCell className="w-10">
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                  {expandedRows.has(df.id) ? (
-                    <ChevronDown className="h-4 w-4" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4" />
-                  )}
-                </Button>
-              </TableCell>
-              <TableCell className="font-medium">{df.teamName}</TableCell>
-              <TableCell>v{df.version}</TableCell>
-              <TableCell>{(df.size / 1024).toFixed(1)} KB</TableCell>
-              <TableCell className="font-mono text-sm">{df.checksum.slice(0, 8)}...</TableCell>
-              <TableCell className="text-muted-foreground">
-                {formatDistanceToNow(new Date(df.uploadedAt), { addSuffix: true })}
-              </TableCell>
-            </TableRow>
-            {expandedRows.has(df.id) && (
-              <TableRow key={`${df.id}-expanded`}>
-                <TableCell colSpan={6} className="p-0 border-0">
-                  <div className="pl-10 pr-4">
-                    <VersionsContent dockerfileId={df.id} />
-                  </div>
-                </TableCell>
-              </TableRow>
-            )}
-          </>
+          <DockerfileTableRow
+            key={df.id}
+            dockerfile={df}
+            expanded={expandedRows.has(df.id)}
+            onToggle={() => toggleRow(df.id)}
+          />
         ))}
       </TableBody>
     </Table>

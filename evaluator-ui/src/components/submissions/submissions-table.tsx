@@ -1,11 +1,15 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
-import type { SubmissionDto, SubmissionCompilationDto } from '@evaluator/shared';
-import { CompileStatus, CompilationStatus } from '@evaluator/shared';
-import { submissionQueries } from '@/lib/queries';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import type {
+  SubmissionDto,
+  SubmissionCompilationDto,
+} from "@evaluator/shared";
+import { CompileStatus, CompilationStatus } from "@evaluator/shared";
+import { useSubmissionCompileStream } from "@/lib/hooks/use-submission-compile-stream";
+import { submissionQueries } from "@/lib/queries";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -13,7 +17,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
+} from "@/components/ui/table";
 import {
   ChevronDown,
   ChevronRight,
@@ -22,8 +26,8 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-} from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+} from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 
 interface SubmissionsTableProps {
   submissions: SubmissionDto[];
@@ -31,7 +35,7 @@ interface SubmissionsTableProps {
 
 type StatusConfigItem = {
   label: string;
-  variant: 'default' | 'secondary' | 'destructive' | 'outline';
+  variant: "default" | "secondary" | "destructive" | "outline";
   icon: React.ComponentType<{ className?: string }>;
   iconClassName?: string;
   extraClassName?: string;
@@ -48,71 +52,105 @@ function StatusBadge({
   statusKey,
   config,
 }: {
-  statusKey: 'pending' | 'running' | 'success' | 'failed';
+  statusKey: "pending" | "running" | "success" | "failed";
   config: StatusConfig;
 }) {
-  const { label, variant, icon: Icon, iconClassName, extraClassName } = config[statusKey];
+  const {
+    label,
+    variant,
+    icon: Icon,
+    iconClassName,
+    extraClassName,
+  } = config[statusKey];
   return (
-    <Badge variant={variant} className={`gap-1${extraClassName ? ` ${extraClassName}` : ''}`}>
-      <Icon className={`h-3 w-3${iconClassName ? ` ${iconClassName}` : ''}`} />
+    <Badge
+      variant={variant}
+      className={`gap-1${extraClassName ? ` ${extraClassName}` : ""}`}
+    >
+      <Icon className={`h-3 w-3${iconClassName ? ` ${iconClassName}` : ""}`} />
       {label}
     </Badge>
   );
 }
 
-function resolveCompileStatus(status: CompileStatus): 'pending' | 'running' | 'success' | 'failed' {
-  if (status === CompileStatus.PENDING) return 'pending';
-  if (status === CompileStatus.RUNNING) return 'running';
-  if (status === CompileStatus.SUCCESS) return 'success';
-  return 'failed';
+function resolveCompileStatus(
+  status: CompileStatus,
+): "pending" | "running" | "success" | "failed" {
+  if (status === CompileStatus.PENDING) return "pending";
+  if (status === CompileStatus.RUNNING) return "running";
+  if (status === CompileStatus.SUCCESS) return "success";
+  return "failed";
 }
 
 const compileStatusConfig: StatusConfig = {
-  pending: { label: 'Pending', variant: 'secondary', icon: Clock },
-  running: { label: 'Running', variant: 'default', icon: Loader2, iconClassName: 'animate-spin' },
-  success: {
-    label: 'Success',
-    variant: 'default',
-    icon: CheckCircle,
-    extraClassName: 'bg-green-600 hover:bg-green-700',
+  pending: { label: "Pending", variant: "secondary", icon: Clock },
+  running: {
+    label: "Running",
+    variant: "default",
+    icon: Loader2,
+    iconClassName: "animate-spin",
   },
-  failed: { label: 'Failed', variant: 'destructive', icon: XCircle },
+  success: {
+    label: "Success",
+    variant: "default",
+    icon: CheckCircle,
+    extraClassName: "bg-green-600 hover:bg-green-700",
+  },
+  failed: { label: "Failed", variant: "destructive", icon: XCircle },
 };
 
 function CompileStatusBadge({ status }: { status: CompileStatus }) {
-  return <StatusBadge statusKey={resolveCompileStatus(status)} config={compileStatusConfig} />;
+  return (
+    <StatusBadge
+      statusKey={resolveCompileStatus(status)}
+      config={compileStatusConfig}
+    />
+  );
 }
 
 function resolveCompilationStatus(
   status: CompilationStatus,
-): 'pending' | 'running' | 'success' | 'failed' {
-  if (status === CompilationStatus.PENDING) return 'pending';
-  if (status === CompilationStatus.IN_PROGRESS) return 'running';
-  if (status === CompilationStatus.SUCCESS) return 'success';
-  return 'failed';
+): "pending" | "running" | "success" | "failed" {
+  if (status === CompilationStatus.PENDING) return "pending";
+  if (status === CompilationStatus.IN_PROGRESS) return "running";
+  if (status === CompilationStatus.SUCCESS) return "success";
+  return "failed";
 }
 
 const compilationStatusConfig: StatusConfig = {
-  pending: { label: 'Pending', variant: 'secondary', icon: Clock, extraClassName: 'text-xs' },
+  pending: {
+    label: "Pending",
+    variant: "secondary",
+    icon: Clock,
+    extraClassName: "text-xs",
+  },
   running: {
-    label: 'In Progress',
-    variant: 'default',
+    label: "In Progress",
+    variant: "default",
     icon: Loader2,
-    iconClassName: 'animate-spin',
-    extraClassName: 'text-xs',
+    iconClassName: "animate-spin",
+    extraClassName: "text-xs",
   },
   success: {
-    label: 'Success',
-    variant: 'default',
+    label: "Success",
+    variant: "default",
     icon: CheckCircle,
-    extraClassName: 'text-xs bg-green-600 hover:bg-green-700',
+    extraClassName: "text-xs bg-green-600 hover:bg-green-700",
   },
-  failed: { label: 'Failed', variant: 'destructive', icon: XCircle, extraClassName: 'text-xs' },
+  failed: {
+    label: "Failed",
+    variant: "destructive",
+    icon: XCircle,
+    extraClassName: "text-xs",
+  },
 };
 
 function CompilationStatusBadge({ status }: { status: CompilationStatus }) {
   return (
-    <StatusBadge statusKey={resolveCompilationStatus(status)} config={compilationStatusConfig} />
+    <StatusBadge
+      statusKey={resolveCompilationStatus(status)}
+      config={compilationStatusConfig}
+    />
   );
 }
 
@@ -184,7 +222,7 @@ function CompilationsContent({ submissionId }: { submissionId: string }) {
  */
 function formatCompileTime(compilation: SubmissionCompilationDto): string {
   if (!compilation.startedAt || !compilation.completedAt) {
-    return '-';
+    return "-";
   }
   const ms =
     new Date(compilation.completedAt).getTime() -
@@ -207,9 +245,7 @@ function CompilationDetailRow({
 }) {
   return (
     <TableRow className="border-0 hover:bg-muted/30">
-      <TableCell className="py-2 pl-4">
-        {compilation.testCase.name}
-      </TableCell>
+      <TableCell className="py-2 pl-4">{compilation.testCase.name}</TableCell>
       <TableCell className="py-2">
         <Badge variant="outline" className="text-xs">
           {compilation.testCase.category}
@@ -222,6 +258,68 @@ function CompilationDetailRow({
         {formatCompileTime(compilation)}
       </TableCell>
     </TableRow>
+  );
+}
+
+function SubmissionTableRow({
+  submission,
+  expanded,
+  onToggle,
+}: {
+  submission: SubmissionDto;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  useSubmissionCompileStream({
+    submissionId: submission.id,
+    status: submission.compileStatus,
+  });
+
+  return (
+    <>
+      <TableRow className="cursor-pointer hover:bg-muted/50" onClick={onToggle}>
+        <TableCell className="w-10">
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+            {expanded ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+          </Button>
+        </TableCell>
+        <TableCell className="font-medium">{submission.teamName}</TableCell>
+        <TableCell>v{submission.version}</TableCell>
+        <TableCell>
+          <CompileStatusBadge status={submission.compileStatus} />
+        </TableCell>
+        <TableCell>{submission.totalScore}</TableCell>
+        <TableCell className="text-muted-foreground">
+          {formatDistanceToNow(new Date(submission.submittedAt), {
+            addSuffix: true,
+          })}
+        </TableCell>
+      </TableRow>
+      {expanded && (
+        <TableRow>
+          <TableCell colSpan={6} className="p-0 border-0">
+            <div className="pl-10 pr-4">
+              <div className="flex justify-end py-2">
+                <Button variant="outline" size="sm" asChild>
+                  <Link
+                    to="/submissions/$submissionId"
+                    params={{ submissionId: submission.id }}
+                  >
+                    <ExternalLink className="h-4 w-4 mr-1" />
+                    View Details
+                  </Link>
+                </Button>
+              </div>
+              <CompilationsContent submissionId={submission.id} />
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   );
 }
 
@@ -268,56 +366,12 @@ export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
       </TableHeader>
       <TableBody>
         {submissions.map((submission) => (
-          <>
-            <TableRow
-              key={submission.id}
-              className="cursor-pointer hover:bg-muted/50"
-              onClick={() => toggleRow(submission.id)}
-            >
-              <TableCell className="w-10">
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                  {expandedRows.has(submission.id) ? (
-                    <ChevronDown className="h-4 w-4" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4" />
-                  )}
-                </Button>
-              </TableCell>
-              <TableCell className="font-medium">
-                {submission.teamName}
-              </TableCell>
-              <TableCell>v{submission.version}</TableCell>
-              <TableCell>
-                <CompileStatusBadge status={submission.compileStatus} />
-              </TableCell>
-              <TableCell>{submission.totalScore}</TableCell>
-              <TableCell className="text-muted-foreground">
-                {formatDistanceToNow(new Date(submission.submittedAt), {
-                  addSuffix: true,
-                })}
-              </TableCell>
-            </TableRow>
-            {expandedRows.has(submission.id) && (
-              <TableRow key={`${submission.id}-expanded`}>
-                <TableCell colSpan={6} className="p-0 border-0">
-                  <div className="pl-10 pr-4">
-                    <div className="flex justify-end py-2">
-                      <Button variant="outline" size="sm" asChild>
-                        <Link
-                          to="/submissions/$submissionId"
-                          params={{ submissionId: submission.id }}
-                        >
-                          <ExternalLink className="h-4 w-4 mr-1" />
-                          View Details
-                        </Link>
-                      </Button>
-                    </div>
-                    <CompilationsContent submissionId={submission.id} />
-                  </div>
-                </TableCell>
-              </TableRow>
-            )}
-          </>
+          <SubmissionTableRow
+            key={submission.id}
+            submission={submission}
+            expanded={expandedRows.has(submission.id)}
+            onToggle={() => toggleRow(submission.id)}
+          />
         ))}
       </TableBody>
     </Table>

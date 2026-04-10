@@ -1,4 +1,4 @@
-export type BuildStatus = 'PENDING' | 'BUILDING' | 'SUCCESS' | 'FAILED';
+export type BuildStatus = "PENDING" | "BUILDING" | "SUCCESS" | "FAILED";
 
 export interface DockerfileDto {
   id: string;
@@ -36,8 +36,22 @@ export interface DockerfileVersionDto {
   buildError?: string | null;
 }
 
-export interface BuildLogEvent {
-  type: 'log' | 'status' | 'complete' | 'error';
-  message?: string;
-  status?: BuildStatus;
+export interface BuildLogLineEvent {
+  type: "log";
+  message: string;
 }
+
+export interface BuildStatusEvent {
+  type: "status";
+  version: DockerfileVersionDto;
+}
+
+export interface BuildCompleteEvent {
+  type: "complete";
+  version: DockerfileVersionDto;
+}
+
+export type BuildLogEvent =
+  | BuildLogLineEvent
+  | BuildStatusEvent
+  | BuildCompleteEvent;

@@ -1,17 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
-import { useParams, Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import type { BuildLogEvent, BuildStatus } from '@evaluator/shared';
-import { dockerfileQueries, teamQueries } from '@/lib/queries';
-import { dockerfilesApi } from '@/lib/api-client';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { ArrowLeft, Download, Loader2, CheckCircle, XCircle, Clock } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { useEffect, useRef, useState } from "react";
+import { useParams, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import type { BuildStatus } from "@evaluator/shared";
+import { dockerfileQueries, teamQueries } from "@/lib/queries";
+import { dockerfilesApi } from "@/lib/api-client";
+import { useDockerfileBuildStream } from "@/lib/hooks/use-dockerfile-build-stream";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  ArrowLeft,
+  Download,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  Clock,
+} from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 
 function BuildStatusBadge({ status }: { status: BuildStatus }) {
-  if (status === 'PENDING') {
+  if (status === "PENDING") {
     return (
       <Badge variant="secondary" className="gap-1">
         <Clock className="h-3 w-3" />
@@ -20,7 +28,7 @@ function BuildStatusBadge({ status }: { status: BuildStatus }) {
     );
   }
 
-  if (status === 'BUILDING') {
+  if (status === "BUILDING") {
     return (
       <Badge variant="default" className="gap-1">
         <Loader2 className="h-3 w-3 animate-spin" />
@@ -29,9 +37,12 @@ function BuildStatusBadge({ status }: { status: BuildStatus }) {
     );
   }
 
-  if (status === 'SUCCESS') {
+  if (status === "SUCCESS") {
     return (
-      <Badge variant="default" className="gap-1 bg-green-600 hover:bg-green-700">
+      <Badge
+        variant="default"
+        className="gap-1 bg-green-600 hover:bg-green-700"
+      >
         <CheckCircle className="h-3 w-3" />
         Success
       </Badge>
@@ -47,54 +58,19 @@ function BuildStatusBadge({ status }: { status: BuildStatus }) {
 }
 
 function BuildLogViewer({
-  initialLogs,
+  logs,
   isLoading,
-  status,
-  dockerfileId,
-  version,
 }: {
-  initialLogs: string[];
+  logs: string[];
   isLoading: boolean;
-  status: BuildStatus;
-  dockerfileId: string;
-  version: number;
 }) {
   const logContainerRef = useRef<HTMLPreElement>(null);
-  const [logs, setLogs] = useState<string[]>(initialLogs);
-
-  useEffect(() => {
-    setLogs(initialLogs);
-  }, [initialLogs]);
 
   useEffect(() => {
     if (logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
   }, [logs]);
-
-  useEffect(() => {
-    if (status !== 'BUILDING') return;
-
-    const eventSource = new EventSource(
-      dockerfilesApi.getBuildLogStreamUrl(dockerfileId, version),
-    );
-
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data) as BuildLogEvent;
-      if (data.type === 'log' && data.message) {
-        setLogs((prev) => [...prev, data.message!]);
-      }
-      if (data.type === 'complete' || data.type === 'error') {
-        eventSource.close();
-      }
-    };
-
-    eventSource.onerror = () => {
-      eventSource.close();
-    };
-
-    return () => eventSource.close();
-  }, [status, dockerfileId, version]);
 
   if (isLoading) {
     return (
@@ -121,29 +97,49 @@ function BuildLogViewer({
 
 export function DockerfileVersionPage() {
   const { dockerfileId, version: versionParam } = useParams({
-    from: '/dockerfiles/$dockerfileId/versions/$version',
+    from: "/dockerfiles/$dockerfileId/versions/$version",
   });
   const version = parseInt(versionParam, 10);
+  const [liveLogs, setLiveLogs] = useState<string[]>([]);
 
   const { data: dockerfile } = useQuery(dockerfileQueries.detail(dockerfileId));
-  const { data: versionData } = useQuery(dockerfileQueries.version(dockerfileId, version));
+  const { data: versionData } = useQuery(
+    dockerfileQueries.version(dockerfileId, version),
+  );
   const { data: team } = useQuery({
-    ...teamQueries.detail(dockerfile?.teamId ?? ''),
+    ...teamQueries.detail(dockerfile?.teamId ?? ""),
     enabled: !!dockerfile?.teamId,
   });
 
-  const shouldFetchLogs = versionData?.buildStatus === 'SUCCESS' || versionData?.buildStatus === 'FAILED';
+  const shouldFetchLogs =
+    versionData?.buildStatus === "SUCCESS" ||
+    versionData?.buildStatus === "FAILED";
   const { data: storedLogs, isLoading: logsLoading } = useQuery({
     ...dockerfileQueries.buildLogs(dockerfileId, version),
     enabled: shouldFetchLogs && !!versionData?.buildLogS3Key,
   });
 
-  const initialLogs = storedLogs?.logs ? storedLogs.logs.split('\n') : [];
+  useEffect(() => {
+    setLiveLogs([]);
+  }, [dockerfileId, version]);
+
+  useDockerfileBuildStream({
+    dockerfileId,
+    version,
+    buildStatus: versionData?.buildStatus ?? "PENDING",
+    enabled: !!versionData,
+    onLog: (message) => {
+      setLiveLogs((current) => [...current, message]);
+    },
+  });
+
+  const storedLogLines = storedLogs?.logs ? storedLogs.logs.split("\n") : [];
+  const logs = storedLogLines.length > 0 ? storedLogLines : liveLogs;
 
   const handleDownload = () => {
     dockerfilesApi.downloadVersion(dockerfileId, version).then((blob) => {
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
       a.download = `Dockerfile_v${version}`;
       a.click();
@@ -170,7 +166,7 @@ export function DockerfileVersionPage() {
           <CardContent className="space-y-3">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Team</span>
-              <span className="font-medium">{team?.name ?? 'Loading...'}</span>
+              <span className="font-medium">{team?.name ?? "Loading..."}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Version</span>
@@ -178,20 +174,26 @@ export function DockerfileVersionPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Size</span>
-              <span>{versionData ? `${(versionData.size / 1024).toFixed(1)} KB` : '...'}</span>
+              <span>
+                {versionData
+                  ? `${(versionData.size / 1024).toFixed(1)} KB`
+                  : "..."}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Checksum</span>
               <span className="font-mono text-sm">
-                {versionData ? `${versionData.checksum.slice(0, 8)}...` : '...'}
+                {versionData ? `${versionData.checksum.slice(0, 8)}...` : "..."}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Uploaded</span>
               <span>
                 {versionData
-                  ? formatDistanceToNow(new Date(versionData.uploadedAt), { addSuffix: true })
-                  : '...'}
+                  ? formatDistanceToNow(new Date(versionData.uploadedAt), {
+                      addSuffix: true,
+                    })
+                  : "..."}
               </span>
             </div>
           </CardContent>
@@ -204,13 +206,17 @@ export function DockerfileVersionPage() {
           <CardContent className="space-y-3">
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Status</span>
-              {versionData && <BuildStatusBadge status={versionData.buildStatus} />}
+              {versionData && (
+                <BuildStatusBadge status={versionData.buildStatus} />
+              )}
             </div>
             {versionData?.buildStartedAt && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Started</span>
                 <span>
-                  {formatDistanceToNow(new Date(versionData.buildStartedAt), { addSuffix: true })}
+                  {formatDistanceToNow(new Date(versionData.buildStartedAt), {
+                    addSuffix: true,
+                  })}
                 </span>
               </div>
             )}
@@ -218,7 +224,9 @@ export function DockerfileVersionPage() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Completed</span>
                 <span>
-                  {formatDistanceToNow(new Date(versionData.buildCompletedAt), { addSuffix: true })}
+                  {formatDistanceToNow(new Date(versionData.buildCompletedAt), {
+                    addSuffix: true,
+                  })}
                 </span>
               </div>
             )}
@@ -243,11 +251,8 @@ export function DockerfileVersionPage() {
         </CardHeader>
         <CardContent>
           <BuildLogViewer
-            initialLogs={initialLogs}
+            logs={logs}
             isLoading={logsLoading && shouldFetchLogs}
-            status={versionData?.buildStatus ?? 'PENDING'}
-            dockerfileId={dockerfileId}
-            version={version}
           />
         </CardContent>
       </Card>

@@ -173,30 +173,37 @@ export class DockerfilesController {
   @ApiOperation({ summary: 'Stream build logs via Server-Sent Events' })
   @ApiParam({ name: 'id', description: 'Dockerfile ID' })
   @ApiParam({ name: 'version', description: 'Version number' })
-  streamBuildLogs(
+  async streamBuildLogs(
     @Param('id') id: string,
     @Param('version') version: string,
-  ): Observable<{ data: BuildLogEvent }> {
+  ): Promise<Observable<{ data: BuildLogEvent }>> {
     const versionNum = parseInt(version, 10);
     const channel = `docker-build:${id}:${versionNum}`;
+    const versionData = await this.dockerfilesService.getVersion(
+      id,
+      versionNum,
+    );
 
     return new Observable<{ data: BuildLogEvent }>((subscriber) => {
       subscriber.next({
-        data: { type: 'status', status: 'BUILDING' },
+        data: {
+          type: 'status',
+          version: versionData,
+        },
       });
 
-      const unsubscribePromise = this.redisLogService.subscribeWithReplay(
-        channel,
-        (event) => {
-          const logEvent = event as BuildLogEvent;
-          subscriber.next({ data: logEvent });
+      const unsubscribePromise =
+        this.redisLogService.subscribeWithReplay<BuildLogEvent>(
+          channel,
+          (event) => {
+            subscriber.next({ data: event });
 
-          if (logEvent.type === 'complete' || logEvent.type === 'error') {
-            stopStream();
-            subscriber.complete();
-          }
-        },
-      );
+            if (event.type === 'complete') {
+              stopStream();
+              subscriber.complete();
+            }
+          },
+        );
 
       let stopped = false;
 
