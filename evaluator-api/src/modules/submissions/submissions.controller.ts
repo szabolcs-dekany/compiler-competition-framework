@@ -25,8 +25,8 @@ import type {
   SubmissionCompilationDto,
   CompileLogEvent,
 } from '@evaluator/shared';
-import { CompileStatus } from '@evaluator/shared';
 import { RedisLogService } from '../../common/redis/redis-log.service';
+import { isCompileLogEvent } from '../../common/redis/stream-event-guards';
 import { SubmissionsService } from './submissions.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
@@ -129,26 +129,33 @@ export class SubmissionsController {
   @Sse(':id/compile-logs/stream')
   @ApiOperation({ summary: 'Stream compile logs via Server-Sent Events' })
   @ApiParam({ name: 'id', description: 'Submission ID' })
-  streamCompileLogs(
+  async streamCompileLogs(
     @Param('id') id: string,
-  ): Observable<{ data: CompileLogEvent }> {
+  ): Promise<Observable<{ data: CompileLogEvent }>> {
+    const submission = await this.submissionsService.getSubmissionDto(id);
+
     return new Observable<{ data: CompileLogEvent }>((subscriber) => {
       subscriber.next({
-        data: { type: 'status', status: CompileStatus.RUNNING },
+        data: {
+          type: 'status',
+          submission,
+        },
       });
 
-      const unsubscribePromise = this.redisLogService.subscribeWithReplay(
-        id,
-        (event) => {
-          const logEvent = event as CompileLogEvent;
-          subscriber.next({ data: logEvent });
+      const unsubscribePromise =
+        this.redisLogService.subscribeWithReplay<CompileLogEvent>(
+          id,
+          (event) => {
+            subscriber.next({ data: event });
 
-          if (logEvent.type === 'complete') {
-            stopStream();
-            subscriber.complete();
-          }
-        },
-      );
+            if (event.type === 'complete') {
+              stopStream();
+              subscriber.complete();
+            }
+          },
+          '0',
+          isCompileLogEvent,
+        );
 
       let stopped = false;
 

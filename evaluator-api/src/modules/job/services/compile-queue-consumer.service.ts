@@ -8,7 +8,13 @@ import { SubmissionsService } from '../../submissions/submissions.service';
 import { SourceFilesService } from '../../source-files/source-files.service';
 import { DockerfilesService } from '../../dockerfiles/dockerfiles.service';
 import { Submission } from '@prisma/client';
-import { DockerfileDto, SourceFileDto } from '@evaluator/shared';
+import type {
+  CompileLogEvent,
+  DockerfileDto,
+  SourceFileDto,
+  SubmissionCompilationDto,
+  SubmissionDto,
+} from '@evaluator/shared';
 import { DockerService } from '../../docker/docker.service';
 import { StorageService } from '../../../common/storage/storage.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
@@ -156,8 +162,13 @@ export class CompileQueueConsumerService {
       data: {
         compileStatus: 'RUNNING',
         compileStartedAt: new Date(),
+        compileCompletedAt: null,
+        compileLogS3Key: null,
+        compileError: null,
       },
     });
+
+    await this.publishSubmissionEvent(submissionId, 'status');
   }
 
   private async prepareWorkspace(
@@ -259,49 +270,63 @@ export class CompileQueueConsumerService {
     const logPrefix = `[${sourceFile.originalName}]`;
     const outputFileName = path.parse(sourceFile.originalName).name;
 
-    await this.updateCompilationStatus(compilationId, 'IN_PROGRESS');
-    await this.logCompilationStart(
-      context,
-      logPrefix,
-      sourceFile,
-      outputFileName,
-    );
-
-    const result = await this.executeCompilation(
-      context,
-      submission,
-      imageName,
-      sourceFile,
-      outputFileName,
-      timeoutMs,
-    );
-
-    await this.processCompilationOutput(context, logPrefix, result);
-
-    if (result.exitCode !== 0) {
-      this.logCompilationFailure(sourceFile, result);
-      await this.updateCompilationStatus(compilationId, 'FAILED');
-      return { success: false };
-    }
-
-    const compiledFileInfo = await this.handleSuccessfulCompilation(
-      context,
-      sourceFile,
-      outputFileName,
-      logPrefix,
-    );
-
-    if (compiledFileInfo) {
-      await this.updateCompilationStatus(
-        compilationId,
-        'SUCCESS',
-        compiledFileInfo.compiledS3Key,
+    try {
+      await this.updateCompilationStatus(compilationId, 'IN_PROGRESS');
+      await this.logCompilationStart(
+        context,
+        logPrefix,
+        sourceFile,
+        outputFileName,
       );
-    } else {
-      await this.updateCompilationStatus(compilationId, 'FAILED');
-    }
 
-    return { success: compiledFileInfo !== null, compiledFileInfo };
+      const result = await this.executeCompilation(
+        context,
+        submission,
+        imageName,
+        sourceFile,
+        outputFileName,
+        timeoutMs,
+      );
+
+      await this.processCompilationOutput(context, logPrefix, result);
+
+      if (result.exitCode !== 0) {
+        this.logCompilationFailure(sourceFile, result);
+        await this.updateCompilationStatus(compilationId, 'FAILED', {
+          errorMessage: this.getCompilationFailureMessage(result),
+        });
+        return { success: false };
+      }
+
+      const compiledFileInfo = await this.handleSuccessfulCompilation(
+        context,
+        sourceFile,
+        outputFileName,
+        logPrefix,
+      );
+
+      if (compiledFileInfo) {
+        await this.updateCompilationStatus(compilationId, 'SUCCESS', {
+          s3Key: compiledFileInfo.compiledS3Key,
+          errorMessage: null,
+        });
+      } else {
+        await this.updateCompilationStatus(compilationId, 'FAILED', {
+          errorMessage: `Compiled output not found: ${outputFileName}`,
+        });
+      }
+
+      return { success: compiledFileInfo !== null, compiledFileInfo };
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+
+      await this.appendLog(context, `${logPrefix} ERROR: ${errorMessage}`);
+      await this.updateCompilationStatus(compilationId, 'FAILED', {
+        errorMessage,
+      });
+      throw error;
+    }
   }
 
   private async logCompilationStart(
@@ -429,6 +454,16 @@ export class CompileQueueConsumerService {
     );
   }
 
+  private getCompilationFailureMessage(result: CompilationResult): string {
+    const stderr = result.stderr.trim();
+
+    if (stderr.length > 0) {
+      return stderr;
+    }
+
+    return `Compilation failed with exit code ${result.exitCode}`;
+  }
+
   private async persistCompilationResults(
     context: CompilationContext,
     submissionId: string,
@@ -438,11 +473,12 @@ export class CompileQueueConsumerService {
     const allFilesCompiled = compiledFiles.length === totalSourceFiles;
     const logS3Key = await this.uploadCompileLogs(context);
 
-    await this.updateSubmissionStatus(submissionId, logS3Key, allFilesCompiled);
-    await this.finalizeLogStream(
-      context,
-      allFilesCompiled ? 'SUCCESS' : 'FAILED',
+    const submission = await this.updateSubmissionStatus(
+      submissionId,
+      logS3Key,
+      allFilesCompiled,
     );
+    await this.finalizeLogStream(submission);
   }
 
   private async uploadCompileLogs(
@@ -462,7 +498,7 @@ export class CompileQueueConsumerService {
     submissionId: string,
     logS3Key: string,
     allFilesCompiled: boolean,
-  ): Promise<void> {
+  ): Promise<SubmissionDto> {
     await this.prisma.submission.update({
       where: { id: submissionId },
       data: {
@@ -474,16 +510,46 @@ export class CompileQueueConsumerService {
           : 'One or more source files failed to compile',
       },
     });
+
+    return this.submissionsService.getSubmissionDto(submissionId);
   }
 
-  private async finalizeLogStream(
-    context: CompilationContext,
-    finalStatus: string,
+  private async publishSubmissionEvent(
+    submissionId: string,
+    type: 'status' | 'complete',
   ): Promise<void> {
-    await this.redisLogService.publishEvent(context.submissionId, {
+    const submission =
+      await this.submissionsService.getSubmissionDto(submissionId);
+
+    await this.redisLogService.publishEvent(submissionId, {
+      type,
+      submission,
+    } satisfies Extract<CompileLogEvent, { type: 'status' | 'complete' }>);
+  }
+
+  private async publishCompilationStatusEvent(
+    compilation: SubmissionCompilationDto,
+  ): Promise<void> {
+    await this.redisLogService.publishEvent(compilation.submissionId, {
+      type: 'compilation-status',
+      compilation,
+    } satisfies Extract<CompileLogEvent, { type: 'compilation-status' }>);
+  }
+
+  private async finalizeLogStream(submission: SubmissionDto): Promise<void> {
+    await this.redisLogService.publishEvent(submission.id, {
       type: 'complete',
-      status: finalStatus,
-    });
+      submission,
+    } satisfies Extract<CompileLogEvent, { type: 'complete' }>);
+  }
+
+  private async refreshAndPublishCompilationStatus(
+    compilationId: string,
+  ): Promise<SubmissionCompilationDto> {
+    const compilation =
+      await this.submissionsService.getCompilationDto(compilationId);
+    await this.publishCompilationStatusEvent(compilation);
+    return compilation;
   }
 
   private async handleCompilationFailure(
@@ -502,30 +568,30 @@ export class CompileQueueConsumerService {
 
     try {
       const logS3Key = await this.uploadCompileLogs(context);
-      await this.updateSubmissionFailureStatus(
+      const submission = await this.updateSubmissionFailureStatus(
         submissionId,
         logS3Key,
         errorMessage,
       );
+      await this.finalizeLogStream(submission);
     } catch (uploadError) {
       this.logger.error(
         `Failed to upload error logs: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`,
       );
-      await this.updateSubmissionFailureStatus(
+      const submission = await this.updateSubmissionFailureStatus(
         submissionId,
         null,
         errorMessage,
       );
+      await this.finalizeLogStream(submission);
     }
-
-    await this.finalizeLogStream(context, 'FAILED');
   }
 
   private async updateSubmissionFailureStatus(
     submissionId: string,
     logS3Key: string | null,
     errorMessage: string,
-  ): Promise<void> {
+  ): Promise<SubmissionDto> {
     await this.prisma.submission.update({
       where: { id: submissionId },
       data: {
@@ -535,6 +601,8 @@ export class CompileQueueConsumerService {
         compileError: errorMessage,
       },
     });
+
+    return this.submissionsService.getSubmissionDto(submissionId);
   }
 
   private cleanupWorkspace(context: CompilationContext): void {
@@ -588,7 +656,13 @@ export class CompileQueueConsumerService {
             submissionId: context.submissionId,
           },
         },
-        update: {},
+        update: {
+          status: 'PENDING',
+          s3Key: null,
+          startedAt: null,
+          completedAt: null,
+          errorMessage: null,
+        },
         create: {
           sourceFileVersionId: sourceFileVersion.id,
           submissionId: context.submissionId,
@@ -608,25 +682,32 @@ export class CompileQueueConsumerService {
   private async updateCompilationStatus(
     compilationId: string,
     status: 'PENDING' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILED',
-    s3Key?: string,
+    opts?: { s3Key?: string; errorMessage?: string | null },
   ): Promise<void> {
     const updateData: {
       status: typeof status;
       startedAt?: Date;
-      completedAt?: Date;
+      completedAt?: Date | null;
       s3Key?: string;
+      errorMessage?: string | null;
     } = { status };
 
     if (status === 'IN_PROGRESS') {
       updateData.startedAt = new Date();
+      updateData.completedAt = null;
+      updateData.errorMessage = null;
     }
 
     if (status === 'SUCCESS' || status === 'FAILED') {
       updateData.completedAt = new Date();
     }
 
-    if (s3Key) {
-      updateData.s3Key = s3Key;
+    if (opts?.s3Key) {
+      updateData.s3Key = opts.s3Key;
+    }
+
+    if (opts && 'errorMessage' in opts) {
+      updateData.errorMessage = opts.errorMessage ?? null;
     }
 
     await this.prisma.compilation.update({
@@ -634,6 +715,7 @@ export class CompileQueueConsumerService {
       data: updateData,
     });
 
+    await this.refreshAndPublishCompilationStatus(compilationId);
     this.logger.debug(`Updated compilation ${compilationId} to ${status}`);
   }
 }

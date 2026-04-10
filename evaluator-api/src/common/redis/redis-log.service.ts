@@ -9,6 +9,11 @@ interface LogEvent {
   type: string;
   message?: string;
   status?: string;
+  [key: string]: unknown;
+}
+
+interface StreamEventShape {
+  type: string;
 }
 
 type RedisStreamEntry = [id: string, fields: string[]];
@@ -64,11 +69,17 @@ export class RedisLogService implements OnModuleDestroy {
     entryId: string,
     fields: string[],
   ): LogEvent | null {
+    let payload: string | null = null;
     const event: LogEvent = { type: '' };
 
     for (let index = 0; index < fields.length - 1; index += 2) {
       const key = fields[index];
       const value = fields[index + 1];
+
+      if (key === 'payload') {
+        payload = value;
+        continue;
+      }
 
       if (key === 'type') {
         event.type = value;
@@ -83,6 +94,28 @@ export class RedisLogService implements OnModuleDestroy {
       }
     }
 
+    if (payload !== null) {
+      try {
+        const parsed: unknown = JSON.parse(payload);
+
+        if (this.isLogEvent(parsed)) {
+          return parsed;
+        }
+
+        this.logger.warn(
+          `Malformed structured log stream event on ${channel} at ${entryId}`,
+        );
+        return null;
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : 'Unknown parse error';
+        this.logger.warn(
+          `Failed to parse structured log stream event on ${channel} at ${entryId}: ${message}`,
+        );
+        return null;
+      }
+    }
+
     if (!event.type) {
       this.logger.warn(
         `Malformed log stream event on ${channel} at ${entryId}`,
@@ -93,18 +126,27 @@ export class RedisLogService implements OnModuleDestroy {
     return event;
   }
 
-  private async appendEvent(channel: string, event: LogEvent): Promise<void> {
-    const fields: string[] = ['type', event.type];
+  private isLogEvent(value: unknown): value is LogEvent {
+    const candidate = value as { type?: unknown };
 
-    if (event.message !== undefined) {
-      fields.push('message', event.message);
-    }
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      'type' in value &&
+      typeof candidate.type === 'string'
+    );
+  }
 
-    if (event.status !== undefined) {
-      fields.push('status', event.status);
-    }
-
-    await this.publisher.xadd(this.streamKey(channel), '*', ...fields);
+  private async appendEvent<TEvent extends StreamEventShape>(
+    channel: string,
+    event: TEvent,
+  ): Promise<void> {
+    await this.publisher.xadd(
+      this.streamKey(channel),
+      '*',
+      'payload',
+      JSON.stringify(event),
+    );
   }
 
   private async readStream(channel: string): Promise<LogEvent[]> {
@@ -124,9 +166,9 @@ export class RedisLogService implements OnModuleDestroy {
     await this.appendEvent(channel, { type: 'log', message });
   }
 
-  async publishEvent(
+  async publishEvent<TEvent extends StreamEventShape>(
     channel: string,
-    event: { type: string; message?: string; status?: string },
+    event: TEvent,
   ): Promise<void> {
     await this.appendEvent(channel, event);
   }
@@ -135,20 +177,17 @@ export class RedisLogService implements OnModuleDestroy {
     const events = await this.readStream(channel);
 
     return events.flatMap((event) =>
-      event.type === 'log' && event.message !== undefined
+      event.type === 'log' && typeof event.message === 'string'
         ? [event.message]
         : [],
     );
   }
 
-  subscribeWithReplay(
+  subscribeWithReplay<TEvent extends StreamEventShape>(
     channel: string,
-    handler: (event: {
-      type: string;
-      message?: string;
-      status?: string;
-    }) => void,
+    handler: (event: TEvent) => void,
     fromId = '0',
+    isTEvent?: (event: unknown) => event is TEvent,
   ): Promise<() => Promise<void>> {
     const reader = this.createReader(channel);
     const key = this.streamKey(channel);
@@ -180,7 +219,19 @@ export class RedisLogService implements OnModuleDestroy {
               continue;
             }
 
-            handler(event);
+            if (isTEvent) {
+              if (!isTEvent(event)) {
+                this.logger.warn(
+                  `Skipping invalid replayed event on ${channel} at ${entryId}`,
+                );
+                continue;
+              }
+
+              handler(event);
+              continue;
+            }
+
+            handler(event as unknown as TEvent);
 
             if (!active) {
               break;

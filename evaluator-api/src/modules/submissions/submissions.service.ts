@@ -5,7 +5,10 @@ import { StorageService } from '../../common/storage/storage.service';
 import { TestCasesService } from '../test-cases/test-cases.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
-import type { SubmissionCompilationDto } from '@evaluator/shared';
+import type {
+  SubmissionCompilationDto,
+  SubmissionDto,
+} from '@evaluator/shared';
 import { CompilationStatus } from '@evaluator/shared';
 import { CompileQueueService } from '../queue/compile-queue.service';
 
@@ -153,6 +156,38 @@ export class SubmissionsService {
     };
   }
 
+  async findOneDto(id: string): Promise<SubmissionDto | null> {
+    const submission = await this.prisma.submission.findUnique({
+      where: { id },
+      include: {
+        team: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!submission) {
+      return null;
+    }
+
+    return this.toSubmissionDto({
+      ...submission,
+      teamName: submission.team.name,
+    });
+  }
+
+  async getSubmissionDto(id: string): Promise<SubmissionDto> {
+    const submission = await this.findOneDto(id);
+
+    if (!submission) {
+      throw new NotFoundException(`Submission with id ${id} not found`);
+    }
+
+    return submission;
+  }
+
   async findCompilations(
     submissionId: string,
   ): Promise<SubmissionCompilationDto[]> {
@@ -187,21 +222,7 @@ export class SubmissionsService {
       const existing = compilationMap.get(tc.id);
 
       if (existing) {
-        return {
-          id: existing.id,
-          submissionId: existing.submissionId,
-          testCaseId: tc.id,
-          status: existing.status as CompilationStatus,
-          errorMessage: existing.errorMessage,
-          startedAt: existing.startedAt?.toISOString() ?? null,
-          completedAt: existing.completedAt?.toISOString() ?? null,
-          testCase: {
-            id: tc.id,
-            name: tc.name,
-            category: tc.category,
-            points: tc.points,
-          },
-        };
+        return this.toCompilationDto(existing, tc);
       }
 
       return {
@@ -220,6 +241,32 @@ export class SubmissionsService {
         },
       };
     });
+  }
+
+  async getCompilationDto(
+    compilationId: string,
+  ): Promise<SubmissionCompilationDto> {
+    const compilation = await this.prisma.compilation.findUnique({
+      where: { id: compilationId },
+      include: {
+        sourceFileVersion: {
+          include: {
+            sourceFile: true,
+          },
+        },
+      },
+    });
+
+    if (!compilation) {
+      throw new NotFoundException(
+        `Compilation with id ${compilationId} not found`,
+      );
+    }
+
+    const testCaseId = compilation.sourceFileVersion.sourceFile.testCaseId;
+    const testCase = this.testCasesService.findOne(testCaseId);
+
+    return this.toCompilationDto(compilation, testCase);
   }
 
   async getCompileLogs(submissionId: string): Promise<string> {
@@ -241,5 +288,74 @@ export class SubmissionsService {
 
     const logBuffer = await this.storage.getFile(submission.compileLogS3Key);
     return logBuffer.toString('utf-8');
+  }
+
+  private toSubmissionDto(submission: {
+    id: string;
+    teamId: string;
+    teamName: string;
+    version: number;
+    originalName: string;
+    extension: string;
+    compilerPath: string | null;
+    status: Submission['status'];
+    submittedAt: Date;
+    totalScore: number;
+    compileStatus: Submission['compileStatus'];
+    compileLogS3Key: string | null;
+    compileStartedAt: Date | null;
+    compileCompletedAt: Date | null;
+    compileError: string | null;
+  }): SubmissionDto {
+    return {
+      id: submission.id,
+      teamId: submission.teamId,
+      teamName: submission.teamName,
+      version: submission.version,
+      originalName: submission.originalName,
+      extension: submission.extension,
+      compilerPath: submission.compilerPath,
+      status: submission.status as SubmissionDto['status'],
+      submittedAt: submission.submittedAt.toISOString(),
+      totalScore: submission.totalScore,
+      compileStatus: submission.compileStatus as SubmissionDto['compileStatus'],
+      compileLogS3Key: submission.compileLogS3Key,
+      compileStartedAt: submission.compileStartedAt?.toISOString() ?? null,
+      compileCompletedAt: submission.compileCompletedAt?.toISOString() ?? null,
+      compileError: submission.compileError,
+    };
+  }
+
+  private toCompilationDto(
+    compilation: {
+      id: string;
+      submissionId: string;
+      status: string;
+      errorMessage: string | null;
+      startedAt: Date | null;
+      completedAt: Date | null;
+    },
+    testCase: {
+      id: string;
+      name: string;
+      category: string;
+      points: number;
+    },
+  ): SubmissionCompilationDto {
+    return {
+      id: compilation.id,
+      submissionId: compilation.submissionId,
+      testCaseId: testCase.id,
+      status: compilation.status as CompilationStatus,
+      errorMessage: compilation.errorMessage,
+      startedAt: compilation.startedAt?.toISOString() ?? null,
+      completedAt: compilation.completedAt?.toISOString() ?? null,
+      testCase: {
+        id: testCase.id,
+        name: testCase.name,
+        category: testCase.category,
+        points: testCase.points,
+      },
+    };
   }
 }
