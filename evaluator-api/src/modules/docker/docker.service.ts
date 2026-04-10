@@ -2,15 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { Container } from 'dockerode';
 import Docker from 'dockerode';
 import { ConfigService } from '@nestjs/config';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as tar from 'tar-stream';
-import { Readable } from 'stream';
+import { PassThrough, Readable } from 'stream';
 
 export interface BuildImageParams {
   dockerfileBuffer: Buffer;
   teamId: string;
   version: number;
   dockerfileId: string;
+  onLog?: (message: string) => void;
 }
 
 export interface BuildImageResult {
@@ -26,6 +26,7 @@ export interface RunContainerParams {
   submissionId?: string;
   version?: number;
   timeoutMs?: number;
+  onLog?: (message: string) => void;
 }
 
 export interface RunContainerResult {
@@ -39,10 +40,7 @@ export class DockerService {
   private readonly logger = new Logger(DockerService.name);
   private readonly docker: Docker;
 
-  constructor(
-    private readonly config: ConfigService,
-    private readonly eventEmitter: EventEmitter2,
-  ) {
+  constructor(private readonly config: ConfigService) {
     const path: string = this.config.get(
       'DOCKER_SOCKET_PATH',
       '/var/run/docker.sock',
@@ -63,7 +61,7 @@ export class DockerService {
   }
 
   async buildImage(params: BuildImageParams): Promise<BuildImageResult> {
-    const { dockerfileBuffer, teamId, version, dockerfileId } = params;
+    const { dockerfileBuffer, teamId, version, onLog } = params;
     const imageName = `team-${teamId}:v${version}`;
 
     this.logger.log(`Building Docker image: ${imageName}`);
@@ -73,12 +71,7 @@ export class DockerService {
 
     const stream = await this.docker.buildImage(tarStream, { t: imageName });
 
-    const buildLog = await this.followBuildProgress(
-      stream,
-      imageName,
-      dockerfileId,
-      version,
-    );
+    const buildLog = await this.followBuildProgress(stream, imageName, onLog);
 
     this.logger.log(`Successfully built image: ${imageName}`);
 
@@ -86,14 +79,7 @@ export class DockerService {
   }
 
   async runContainer(params: RunContainerParams): Promise<RunContainerResult> {
-    const {
-      imageName,
-      command,
-      mountPath,
-      containerPath,
-      submissionId,
-      timeoutMs,
-    } = params;
+    const { imageName, command, mountPath, containerPath, timeoutMs } = params;
 
     this.logger.debug(
       `Running container ${imageName} with command: ${command.join(' ')}`,
@@ -134,40 +120,81 @@ export class DockerService {
         follow: true,
       });
 
-      const chunks: Buffer[] = [];
-      const eventTopic = submissionId ? `compile-log:${submissionId}` : null;
+      const stdoutStream = new PassThrough();
+      const stderrStream = new PassThrough();
+
+      const stdoutChunks: string[] = [];
+      const stderrChunks: string[] = [];
+      let stdoutRemainder = '';
+      let stderrRemainder = '';
+
+      const flushLines = (
+        chunk: Buffer,
+        chunks: string[],
+        remainder: string,
+        onLine: (line: string) => void,
+      ): string => {
+        const text = remainder + chunk.toString('utf-8');
+        const lines = text.split('\n');
+        const newRemainder = lines.pop() ?? '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed) {
+            chunks.push(trimmed);
+            onLine(trimmed);
+          }
+        }
+        return newRemainder;
+      };
+
+      this.docker.modem.demuxStream(stream, stdoutStream, stderrStream);
 
       await new Promise<void>((resolve, reject) => {
-        stream.on('data', (chunk: Buffer) => {
-          chunks.push(chunk);
-          if (eventTopic) {
-            const output = chunk.toString('utf-8');
-            const lines = output.split('\n').filter((line) => line.trim());
-            for (const line of lines) {
-              const parsed = this.parseDockerLogLine(line);
-              if (parsed) {
-                this.eventEmitter.emit(eventTopic, {
-                  type: 'log',
-                  message: parsed,
-                });
-              }
-            }
-          }
+        stdoutStream.on('data', (chunk: Buffer) => {
+          stdoutRemainder = flushLines(
+            chunk,
+            stdoutChunks,
+            stdoutRemainder,
+            (line) => {
+              params.onLog?.(line);
+            },
+          );
         });
-        stream.on('end', resolve);
-        stream.on('error', reject);
+        stderrStream.on('data', (chunk: Buffer) => {
+          stderrRemainder = flushLines(
+            chunk,
+            stderrChunks,
+            stderrRemainder,
+            (line) => {
+              params.onLog?.(line);
+            },
+          );
+        });
+        stream.on('end', () => {
+          stdoutStream.end();
+          stderrStream.end();
+          if (stdoutRemainder.trim()) {
+            stdoutChunks.push(stdoutRemainder.trim());
+            params.onLog?.(stdoutRemainder.trim());
+          }
+          if (stderrRemainder.trim()) {
+            stderrChunks.push(stderrRemainder.trim());
+            params.onLog?.(stderrRemainder.trim());
+          }
+          resolve();
+        });
+        stream.on('error', (err: unknown) => {
+          stdoutStream.end();
+          stderrStream.end();
+          reject(err instanceof Error ? err : new Error(String(err)));
+        });
       });
-
-      const output = Buffer.concat(chunks).toString('utf-8');
 
       const result = (await container.wait()) as { StatusCode?: number };
       const exitCode = timedOut ? -1 : (result.StatusCode ?? -1);
 
-      const { stdout, stderr } = this.parseDockerLogs(output);
-
-      if (eventTopic) {
-        this.eventEmitter.emit(`${eventTopic}:complete`);
-      }
+      const stdout = stdoutChunks.join('\n');
+      const stderr = stderrChunks.join('\n');
 
       this.logger.debug(`Container ${imageName} exited with code ${exitCode}`);
 
@@ -187,40 +214,6 @@ export class DockerService {
         this.logger.warn(`Failed to remove container: ${message}`);
       });
     }
-  }
-
-  private parseDockerLogs(output: string): { stdout: string; stderr: string } {
-    const stdoutLines: string[] = [];
-    const stderrLines: string[] = [];
-    const lines = output.split('\n');
-
-    for (const line of lines) {
-      if (line.length === 0) continue;
-
-      const streamType = line.charCodeAt(0);
-      const content = line.slice(8).trim();
-
-      if (content.length === 0) continue;
-
-      if (streamType === 1) {
-        stdoutLines.push(content);
-      } else if (streamType === 2) {
-        stderrLines.push(content);
-      } else {
-        stdoutLines.push(content);
-      }
-    }
-
-    return {
-      stdout: stdoutLines.join('\n'),
-      stderr: stderrLines.join('\n'),
-    };
-  }
-
-  private parseDockerLogLine(line: string): string | null {
-    if (line.length === 0) return null;
-    const content = line.slice(8).trim();
-    return content.length > 0 ? content : null;
   }
 
   private async createTarFromDockerfile(
@@ -252,25 +245,18 @@ export class DockerService {
   private followBuildProgress(
     stream: NodeJS.ReadableStream,
     imageName: string,
-    dockerfileId: string,
-    version: number,
+    onLog?: (message: string) => void,
   ): Promise<string[]> {
     return new Promise((resolve, reject) => {
       const buildLog: string[] = [];
-      const eventTopic = `docker-build:${dockerfileId}:${version}`;
 
       this.docker.modem.followProgress(
         stream,
         (err: Error | null) => {
           if (err) {
             this.logger.error(`Build failed for ${imageName}: ${err.message}`);
-            this.eventEmitter.emit(eventTopic, {
-              type: 'error',
-              message: err.message,
-            });
             reject(err);
           } else {
-            this.eventEmitter.emit(eventTopic, { type: 'complete' });
             resolve(buildLog);
           }
         },
@@ -280,19 +266,13 @@ export class DockerService {
             if (message) {
               buildLog.push(message);
               this.logger.debug(`[${imageName}] ${message}`);
-              this.eventEmitter.emit(eventTopic, {
-                type: 'log',
-                message,
-              });
+              onLog?.(message);
             }
           }
           if (event.error) {
             buildLog.push(`ERROR: ${event.error}`);
             this.logger.error(`[${imageName}] ${event.error}`);
-            this.eventEmitter.emit(eventTopic, {
-              type: 'log',
-              message: `ERROR: ${event.error}`,
-            });
+            onLog?.(`ERROR: ${event.error}`);
           }
           if (event.status) {
             this.logger.debug(`[${imageName}] ${event.status}`);

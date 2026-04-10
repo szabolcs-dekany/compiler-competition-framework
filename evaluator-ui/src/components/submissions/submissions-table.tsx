@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import type { SubmissionDto, TestRunWithDetailsDto } from '@evaluator/shared';
-import { SubmissionStatus, TestRunStatus } from '@evaluator/shared';
+import type { SubmissionDto, SubmissionCompilationDto } from '@evaluator/shared';
+import { CompileStatus, CompilationStatus } from '@evaluator/shared';
 import { submissionQueries } from '@/lib/queries';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,48 +14,138 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ChevronDown, ChevronRight, Loader2, ExternalLink } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  ExternalLink,
+  CheckCircle,
+  XCircle,
+  Clock,
+} from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { cn } from '@/lib/utils';
 
 interface SubmissionsTableProps {
   submissions: SubmissionDto[];
 }
 
-const statusColors: Record<SubmissionStatus, string> = {
-  [SubmissionStatus.PENDING]: 'bg-gray-500',
-  [SubmissionStatus.BUILDING]: 'bg-blue-500',
-  [SubmissionStatus.READY]: 'bg-green-500',
-  [SubmissionStatus.EVALUATING]: 'bg-yellow-500',
-  [SubmissionStatus.COMPLETED]: 'bg-green-600',
-  [SubmissionStatus.FAILED]: 'bg-red-500',
+type StatusConfigItem = {
+  label: string;
+  variant: 'default' | 'secondary' | 'destructive' | 'outline';
+  icon: React.ComponentType<{ className?: string }>;
+  iconClassName?: string;
+  extraClassName?: string;
 };
 
-const testRunStatusColors: Record<TestRunStatus, string> = {
-  [TestRunStatus.PENDING]: 'bg-gray-400',
-  [TestRunStatus.COMPILING]: 'bg-blue-400',
-  [TestRunStatus.RUNNING]: 'bg-yellow-400',
-  [TestRunStatus.PASSED]: 'bg-green-500',
-  [TestRunStatus.FAILED]: 'bg-red-400',
-  [TestRunStatus.TIMEOUT]: 'bg-orange-400',
-  [TestRunStatus.ERROR]: 'bg-red-600',
+type StatusConfig = {
+  pending: StatusConfigItem;
+  running: StatusConfigItem;
+  success: StatusConfigItem;
+  failed: StatusConfigItem;
 };
 
-function TestRunsContent({ submissionId }: { submissionId: string }) {
-  const { data: testRuns, isLoading } = useQuery(submissionQueries.testRuns(submissionId));
+function StatusBadge({
+  statusKey,
+  config,
+}: {
+  statusKey: 'pending' | 'running' | 'success' | 'failed';
+  config: StatusConfig;
+}) {
+  const { label, variant, icon: Icon, iconClassName, extraClassName } = config[statusKey];
+  return (
+    <Badge variant={variant} className={`gap-1${extraClassName ? ` ${extraClassName}` : ''}`}>
+      <Icon className={`h-3 w-3${iconClassName ? ` ${iconClassName}` : ''}`} />
+      {label}
+    </Badge>
+  );
+}
+
+function resolveCompileStatus(status: CompileStatus): 'pending' | 'running' | 'success' | 'failed' {
+  if (status === CompileStatus.PENDING) return 'pending';
+  if (status === CompileStatus.RUNNING) return 'running';
+  if (status === CompileStatus.SUCCESS) return 'success';
+  return 'failed';
+}
+
+const compileStatusConfig: StatusConfig = {
+  pending: { label: 'Pending', variant: 'secondary', icon: Clock },
+  running: { label: 'Running', variant: 'default', icon: Loader2, iconClassName: 'animate-spin' },
+  success: {
+    label: 'Success',
+    variant: 'default',
+    icon: CheckCircle,
+    extraClassName: 'bg-green-600 hover:bg-green-700',
+  },
+  failed: { label: 'Failed', variant: 'destructive', icon: XCircle },
+};
+
+function CompileStatusBadge({ status }: { status: CompileStatus }) {
+  return <StatusBadge statusKey={resolveCompileStatus(status)} config={compileStatusConfig} />;
+}
+
+function resolveCompilationStatus(
+  status: CompilationStatus,
+): 'pending' | 'running' | 'success' | 'failed' {
+  if (status === CompilationStatus.PENDING) return 'pending';
+  if (status === CompilationStatus.IN_PROGRESS) return 'running';
+  if (status === CompilationStatus.SUCCESS) return 'success';
+  return 'failed';
+}
+
+const compilationStatusConfig: StatusConfig = {
+  pending: { label: 'Pending', variant: 'secondary', icon: Clock, extraClassName: 'text-xs' },
+  running: {
+    label: 'In Progress',
+    variant: 'default',
+    icon: Loader2,
+    iconClassName: 'animate-spin',
+    extraClassName: 'text-xs',
+  },
+  success: {
+    label: 'Success',
+    variant: 'default',
+    icon: CheckCircle,
+    extraClassName: 'text-xs bg-green-600 hover:bg-green-700',
+  },
+  failed: { label: 'Failed', variant: 'destructive', icon: XCircle, extraClassName: 'text-xs' },
+};
+
+function CompilationStatusBadge({ status }: { status: CompilationStatus }) {
+  return (
+    <StatusBadge statusKey={resolveCompilationStatus(status)} config={compilationStatusConfig} />
+  );
+}
+
+/**
+ * Render a list of compilations for a given submission.
+ *
+ * Fetches compilations for the provided submission id and displays one of:
+ * - A centered loading indicator while the query is loading
+ * - A centered "No compilations yet" message when there are no compilations
+ * - A table of compilation rows when compilations are available
+ *
+ * @param submissionId - The submission identifier used to fetch its compilations
+ * @returns The compilation list UI (loading, empty state, or table of compilations)
+ */
+function CompilationsContent({ submissionId }: { submissionId: string }) {
+  const { data: compilations, isLoading } = useQuery(
+    submissionQueries.compilations(submissionId),
+  );
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-4 text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin mr-2" />
-        Loading test runs...
+        Loading compilations...
       </div>
     );
   }
 
-  if (!testRuns || testRuns.length === 0) {
+  if (!compilations || compilations.length === 0) {
     return (
-      <div className="text-center py-4 text-muted-foreground">No test runs yet</div>
+      <div className="text-center py-4 text-muted-foreground">
+        No compilations yet
+      </div>
     );
   }
 
@@ -63,54 +153,84 @@ function TestRunsContent({ submissionId }: { submissionId: string }) {
     <Table>
       <TableHeader>
         <TableRow className="border-0 hover:bg-transparent">
-          <TableHead className="text-xs text-muted-foreground h-8">Test Case</TableHead>
-          <TableHead className="text-xs text-muted-foreground h-8">Category</TableHead>
-          <TableHead className="text-xs text-muted-foreground h-8">Status</TableHead>
-          <TableHead className="text-xs text-muted-foreground h-8">Points</TableHead>
-          <TableHead className="text-xs text-muted-foreground h-8">Time</TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">
+            Test Case
+          </TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">
+            Category
+          </TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">
+            Status
+          </TableHead>
+          <TableHead className="text-xs text-muted-foreground h-8">
+            Compile Time
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {testRuns.map((tr) => (
-          <TestRunDetailRow key={tr.id} testRun={tr} />
+        {compilations.map((comp) => (
+          <CompilationDetailRow key={comp.id} compilation={comp} />
         ))}
       </TableBody>
     </Table>
   );
 }
 
-function TestRunDetailRow({ testRun }: { testRun: TestRunWithDetailsDto }) {
-  const totalEarned = testRun.pointsEarned + testRun.bonusEarned;
+/**
+ * Format a compilation's duration as a milliseconds string.
+ *
+ * @param compilation - Compilation object containing `startedAt` and `completedAt` timestamps
+ * @returns `"-"` if `startedAt` or `completedAt` is missing, otherwise the elapsed time as a string like `"123ms"`
+ */
+function formatCompileTime(compilation: SubmissionCompilationDto): string {
+  if (!compilation.startedAt || !compilation.completedAt) {
+    return '-';
+  }
+  const ms =
+    new Date(compilation.completedAt).getTime() -
+    new Date(compilation.startedAt).getTime();
+  return `${ms}ms`;
+}
 
+/**
+ * Renders a table row summarizing a single compilation entry.
+ *
+ * Displays the test case name, a category badge, the compilation status badge, and the formatted compile time.
+ *
+ * @param compilation - The compilation record to render (includes test case details, status, and timestamps)
+ * @returns A table row element containing cells for test case name, category, status, and compile time
+ */
+function CompilationDetailRow({
+  compilation,
+}: {
+  compilation: SubmissionCompilationDto;
+}) {
   return (
     <TableRow className="border-0 hover:bg-muted/30">
-      <TableCell className="py-2 pl-4">{testRun.testCase.name}</TableCell>
+      <TableCell className="py-2 pl-4">
+        {compilation.testCase.name}
+      </TableCell>
       <TableCell className="py-2">
         <Badge variant="outline" className="text-xs">
-          {testRun.testCase.category}
+          {compilation.testCase.category}
         </Badge>
       </TableCell>
       <TableCell className="py-2">
-        <Badge className={cn('text-xs', testRunStatusColors[testRun.status])}>
-          {testRun.status}
-        </Badge>
-      </TableCell>
-      <TableCell className="py-2">
-        <span className={cn(totalEarned > 0 ? 'text-green-600 font-medium' : 'text-muted-foreground')}>
-          {totalEarned}
-        </span>
-        <span className="text-muted-foreground"> / {testRun.testCase.points}</span>
-        {testRun.bonusEarned > 0 && (
-          <span className="text-xs text-green-500 ml-1">(+{testRun.bonusEarned})</span>
-        )}
+        <CompilationStatusBadge status={compilation.status} />
       </TableCell>
       <TableCell className="py-2 text-muted-foreground text-sm">
-        {testRun.runTimeMs ? `${testRun.runTimeMs}ms` : '-'}
+        {formatCompileTime(compilation)}
       </TableCell>
     </TableRow>
   );
 }
 
+/**
+ * Render a table of submissions with expandable rows that reveal compilation details for each submission.
+ *
+ * @param submissions - List of submission records to display; each row shows team, version, compile status, score, and submitted time.
+ * @returns A table element where each submission row can be expanded to show a "View Details" link and its compilations.
+ */
 export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
@@ -141,7 +261,7 @@ export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
           <TableHead className="w-10"></TableHead>
           <TableHead>Team</TableHead>
           <TableHead>Version</TableHead>
-          <TableHead>Status</TableHead>
+          <TableHead>Compile Status</TableHead>
           <TableHead>Score</TableHead>
           <TableHead>Submitted</TableHead>
         </TableRow>
@@ -163,16 +283,18 @@ export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
                   )}
                 </Button>
               </TableCell>
-              <TableCell className="font-medium">{submission.teamName}</TableCell>
+              <TableCell className="font-medium">
+                {submission.teamName}
+              </TableCell>
               <TableCell>v{submission.version}</TableCell>
               <TableCell>
-                <Badge className={statusColors[submission.status]}>
-                  {submission.status}
-                </Badge>
+                <CompileStatusBadge status={submission.compileStatus} />
               </TableCell>
               <TableCell>{submission.totalScore}</TableCell>
               <TableCell className="text-muted-foreground">
-                {formatDistanceToNow(new Date(submission.submittedAt), { addSuffix: true })}
+                {formatDistanceToNow(new Date(submission.submittedAt), {
+                  addSuffix: true,
+                })}
               </TableCell>
             </TableRow>
             {expandedRows.has(submission.id) && (
@@ -181,13 +303,16 @@ export function SubmissionsTable({ submissions }: SubmissionsTableProps) {
                   <div className="pl-10 pr-4">
                     <div className="flex justify-end py-2">
                       <Button variant="outline" size="sm" asChild>
-                        <Link to="/submissions/$submissionId" params={{ submissionId: submission.id }}>
+                        <Link
+                          to="/submissions/$submissionId"
+                          params={{ submissionId: submission.id }}
+                        >
                           <ExternalLink className="h-4 w-4 mr-1" />
                           View Details
                         </Link>
                       </Button>
                     </div>
-                    <TestRunsContent submissionId={submission.id} />
+                    <CompilationsContent submissionId={submission.id} />
                   </div>
                 </TableCell>
               </TableRow>

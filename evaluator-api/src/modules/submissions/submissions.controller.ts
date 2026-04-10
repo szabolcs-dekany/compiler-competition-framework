@@ -9,6 +9,7 @@ import {
   NotFoundException,
   BadRequestException,
   Sse,
+  Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -19,9 +20,13 @@ import {
   ApiConsumes,
   ApiBody,
 } from '@nestjs/swagger';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Observable, fromEvent, map, takeUntil, of, concat } from 'rxjs';
-import type { TestRunWithDetailsDto, CompileLogEvent } from '@evaluator/shared';
+import { Observable } from 'rxjs';
+import type {
+  SubmissionCompilationDto,
+  CompileLogEvent,
+} from '@evaluator/shared';
+import { CompileStatus } from '@evaluator/shared';
+import { RedisLogService } from '../../common/redis/redis-log.service';
 import { SubmissionsService } from './submissions.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
@@ -29,9 +34,11 @@ import { Submission } from './entities/submission.entity';
 @ApiTags('submissions')
 @Controller('submissions')
 export class SubmissionsController {
+  private readonly logger = new Logger(SubmissionsController.name);
+
   constructor(
     private readonly submissionsService: SubmissionsService,
-    private readonly eventEmitter: EventEmitter2,
+    private readonly redisLogService: RedisLogService,
   ) {}
 
   @Post()
@@ -93,16 +100,20 @@ export class SubmissionsController {
     return this.submissionsService.findByTeam(teamId);
   }
 
-  @Get(':id/test-runs')
-  @ApiOperation({ summary: 'Get test runs for a submission' })
+  @Get(':id/compilations')
+  @ApiOperation({
+    summary: 'Get compilation status per test case for a submission',
+  })
   @ApiParam({ name: 'id', description: 'Submission ID' })
   @ApiResponse({
     status: 200,
-    description: 'List of test runs with test case details',
+    description: 'List of compilation statuses with test case details',
   })
   @ApiResponse({ status: 404, description: 'Submission not found' })
-  findTestRuns(@Param('id') id: string): Promise<TestRunWithDetailsDto[]> {
-    return this.submissionsService.findTestRuns(id);
+  findCompilations(
+    @Param('id') id: string,
+  ): Promise<SubmissionCompilationDto[]> {
+    return this.submissionsService.findCompilations(id);
   }
 
   @Get(':id/compile-logs')
@@ -121,19 +132,61 @@ export class SubmissionsController {
   streamCompileLogs(
     @Param('id') id: string,
   ): Observable<{ data: CompileLogEvent }> {
-    const submission = this.submissionsService.findOne(id);
-    const eventTopic = `compile-log:${id}`;
-    const completeTopic = `${eventTopic}:complete`;
+    return new Observable<{ data: CompileLogEvent }>((subscriber) => {
+      subscriber.next({
+        data: { type: 'status', status: CompileStatus.RUNNING },
+      });
 
-    const logStream$ = fromEvent(this.eventEmitter, eventTopic).pipe(
-      map((event: unknown) => ({ data: event as CompileLogEvent })),
-      takeUntil(fromEvent(this.eventEmitter, completeTopic)),
-    );
+      const unsubscribePromise = this.redisLogService.subscribeWithReplay(
+        id,
+        (event) => {
+          const logEvent = event as CompileLogEvent;
+          subscriber.next({ data: logEvent });
 
-    return concat(
-      of({ data: { type: 'status', status: 'RUNNING' } as CompileLogEvent }),
-      logStream$,
-    );
+          if (logEvent.type === 'complete') {
+            stopStream();
+            subscriber.complete();
+          }
+        },
+      );
+
+      let stopped = false;
+
+      const stopStream = (): void => {
+        if (stopped) {
+          return;
+        }
+
+        stopped = true;
+
+        void unsubscribePromise
+          .then((unsubscribe) => unsubscribe())
+          .catch((error: unknown) => {
+            const message =
+              error instanceof Error ? error.message : 'Unknown error';
+            this.logger.error(
+              `Failed to close compile log stream for ${id}: ${message}`,
+            );
+          });
+      };
+
+      void unsubscribePromise.catch((error: unknown) => {
+        if (stopped) {
+          return;
+        }
+
+        const streamError =
+          error instanceof Error ? error : new Error('Failed to stream logs');
+        this.logger.error(
+          `Failed to start compile log stream for ${id}: ${streamError.message}`,
+        );
+        subscriber.error(streamError);
+      });
+
+      return () => {
+        stopStream();
+      };
+    });
   }
 
   @Get(':id')

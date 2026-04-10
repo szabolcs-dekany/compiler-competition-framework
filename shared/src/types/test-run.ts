@@ -21,11 +21,4 @@ export interface TestRunDto {
   completedAt: string | null;
 }
 
-export interface TestRunWithDetailsDto extends TestRunDto {
-  testCase: {
-    id: string;
-    name: string;
-    category: string;
-    points: number;
-  };
-}
+

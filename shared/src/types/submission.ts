@@ -1,5 +1,4 @@
 import { SubmissionStatus, CompileStatus } from './enums.js';
-import type { TestRunDto } from './test-run.js';
 
 export interface SubmissionDto {
   id: string;
@@ -19,16 +18,12 @@ export interface SubmissionDto {
   compileError?: string | null;
 }
 
-export interface SubmissionWithTestRunsDto extends SubmissionDto {
-  testRuns: TestRunDto[];
-}
-
 export interface CreateSubmissionDto {
   teamId: string;
 }
 
 export interface CompileLogEvent {
-  type: 'log' | 'status' | 'complete' | 'error';
+  type: 'log' | 'status' | 'complete';
   message?: string;
   status?: CompileStatus;
 }

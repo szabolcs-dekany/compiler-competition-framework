@@ -5,8 +5,8 @@ import { StorageService } from '../../common/storage/storage.service';
 import { TestCasesService } from '../test-cases/test-cases.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
-import type { TestRunWithDetailsDto } from '@evaluator/shared';
-import { TestRunStatus } from '@evaluator/shared';
+import type { SubmissionCompilationDto } from '@evaluator/shared';
+import { CompilationStatus } from '@evaluator/shared';
 import { CompileQueueService } from '../queue/compile-queue.service';
 
 @Injectable()
@@ -153,7 +153,9 @@ export class SubmissionsService {
     };
   }
 
-  async findTestRuns(submissionId: string): Promise<TestRunWithDetailsDto[]> {
+  async findCompilations(
+    submissionId: string,
+  ): Promise<SubmissionCompilationDto[]> {
     const submission = await this.prisma.submission.findUnique({
       where: { id: submissionId },
     });
@@ -166,35 +168,33 @@ export class SubmissionsService {
 
     const allTestCases = this.testCasesService.findAll();
 
-    const testRuns = await this.prisma.testRun.findMany({
+    const compilations = await this.prisma.compilation.findMany({
       where: { submissionId },
+      include: {
+        sourceFileVersion: {
+          include: {
+            sourceFile: true,
+          },
+        },
+      },
     });
 
-    const testRunMap = new Map(testRuns.map((tr) => [tr.testCaseId, tr]));
+    const compilationMap = new Map(
+      compilations.map((c) => [c.sourceFileVersion.sourceFile.testCaseId, c]),
+    );
 
     return allTestCases.map((tc) => {
-      const existingRun = testRunMap.get(tc.id);
+      const existing = compilationMap.get(tc.id);
 
-      if (existingRun) {
+      if (existing) {
         return {
-          id: existingRun.id,
-          submissionId: existingRun.submissionId,
-          testCaseId: existingRun.testCaseId,
-          status: existingRun.status as TestRunStatus,
-          compileSuccess: existingRun.compileSuccess,
-          compileTimeMs: existingRun.compileTimeMs,
-          runSuccess: existingRun.runSuccess,
-          runTimeMs: existingRun.runTimeMs,
-          actualStdout: existingRun.actualStdout,
-          actualStderr: existingRun.actualStderr,
-          expectedStdout: existingRun.expectedStdout,
-          expectedExitCode: existingRun.expectedExitCode,
-          actualExitCode: existingRun.actualExitCode,
-          pointsEarned: existingRun.pointsEarned,
-          bonusEarned: existingRun.bonusEarned,
-          errorMessage: existingRun.errorMessage,
-          createdAt: existingRun.createdAt.toISOString(),
-          completedAt: existingRun.completedAt?.toISOString() ?? null,
+          id: existing.id,
+          submissionId: existing.submissionId,
+          testCaseId: tc.id,
+          status: existing.status as CompilationStatus,
+          errorMessage: existing.errorMessage,
+          startedAt: existing.startedAt?.toISOString() ?? null,
+          completedAt: existing.completedAt?.toISOString() ?? null,
           testCase: {
             id: tc.id,
             name: tc.name,
@@ -208,20 +208,9 @@ export class SubmissionsService {
         id: `pending-${tc.id}`,
         submissionId,
         testCaseId: tc.id,
-        status: TestRunStatus.PENDING,
-        compileSuccess: null,
-        compileTimeMs: null,
-        runSuccess: null,
-        runTimeMs: null,
-        actualStdout: null,
-        actualStderr: null,
-        expectedStdout: null,
-        expectedExitCode: null,
-        actualExitCode: null,
-        pointsEarned: 0,
-        bonusEarned: 0,
+        status: CompilationStatus.PENDING,
         errorMessage: null,
-        createdAt: new Date().toISOString(),
+        startedAt: null,
         completedAt: null,
         testCase: {
           id: tc.id,

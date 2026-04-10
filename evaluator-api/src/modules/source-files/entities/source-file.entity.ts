@@ -28,24 +28,6 @@ export class SourceFileEntity {
   @ApiProperty({ description: 'Upload timestamp' })
   uploadedAt: string;
 
-  @ApiProperty({
-    description: 'Compiled binary S3 key',
-    required: false,
-    nullable: true,
-  })
-  compiledS3Key?: string;
-
-  @ApiProperty({
-    description: 'Compilation timestamp',
-    required: false,
-    nullable: true,
-  })
-  compiledAt?: string;
-
-  @ApiProperty({
-    description: 'Submission version that compiled this file',
-    required: false,
-    nullable: true,
-  })
-  compiledSubmissionVersion?: number;
+  @ApiProperty({ description: 'S3 key for the file' })
+  s3Key: string;
 }
