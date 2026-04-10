@@ -33,7 +33,13 @@ export class DockerfileQueueConsumerService {
   ): Promise<void> {
     const ctx = this.createBuildContext(job);
     const dockerfile = await this.validateDockerfile(ctx);
-    if (!dockerfile) return;
+    if (!dockerfile) {
+      await this.handleValidationFailure(
+        ctx,
+        `Dockerfile not found or missing S3 key: ${ctx.dockerfileId}`,
+      );
+      return;
+    }
 
     this.logger.log(
       `Processing docker build job for dockerfile: ${ctx.dockerfileId}`,
@@ -140,7 +146,16 @@ export class DockerfileQueueConsumerService {
       type: 'complete',
       status,
     });
-    await this.redisLogService.deleteBuffer(ctx.channel);
+  }
+
+  private async handleValidationFailure(
+    ctx: BuildContext,
+    errorMessage: string,
+  ): Promise<void> {
+    this.logger.warn(errorMessage);
+
+    await this.updateBuildStatus(ctx, 'FAILED', { error: errorMessage });
+    await this.finalizeLogStream(ctx, 'FAILED');
   }
 
   private async handleBuildFailure(

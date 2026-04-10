@@ -484,7 +484,6 @@ export class CompileQueueConsumerService {
       type: 'complete',
       status: finalStatus,
     });
-    await this.redisLogService.deleteBuffer(context.submissionId);
   }
 
   private async handleCompilationFailure(
@@ -582,8 +581,15 @@ export class CompileQueueConsumerService {
         continue;
       }
 
-      const compilation = await this.prisma.compilation.create({
-        data: {
+      const compilation = await this.prisma.compilation.upsert({
+        where: {
+          sourceFileVersionId_submissionId: {
+            sourceFileVersionId: sourceFileVersion.id,
+            submissionId: context.submissionId,
+          },
+        },
+        update: {},
+        create: {
           sourceFileVersionId: sourceFileVersion.id,
           submissionId: context.submissionId,
           status: 'PENDING',

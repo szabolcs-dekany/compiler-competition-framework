@@ -29,87 +29,90 @@ interface SubmissionsTableProps {
   submissions: SubmissionDto[];
 }
 
-/**
- * Render a status Badge with an icon and label for the given compile status.
- *
- * @param status - The compile status to display (e.g., `PENDING`, `RUNNING`, `SUCCESS`, or other failure statuses)
- * @returns The Badge element corresponding to `status`
- */
-function CompileStatusBadge({ status }: { status: CompileStatus }) {
-  if (status === CompileStatus.PENDING) {
-    return (
-      <Badge variant="secondary" className="gap-1">
-        <Clock className="h-3 w-3" />
-        Pending
-      </Badge>
-    );
-  }
+type StatusConfigItem = {
+  label: string;
+  variant: 'default' | 'secondary' | 'destructive' | 'outline';
+  icon: React.ComponentType<{ className?: string }>;
+  iconClassName?: string;
+  extraClassName?: string;
+};
 
-  if (status === CompileStatus.RUNNING) {
-    return (
-      <Badge variant="default" className="gap-1">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Running
-      </Badge>
-    );
-  }
+type StatusConfig = {
+  pending: StatusConfigItem;
+  running: StatusConfigItem;
+  success: StatusConfigItem;
+  failed: StatusConfigItem;
+};
 
-  if (status === CompileStatus.SUCCESS) {
-    return (
-      <Badge variant="default" className="gap-1 bg-green-600 hover:bg-green-700">
-        <CheckCircle className="h-3 w-3" />
-        Success
-      </Badge>
-    );
-  }
-
+function StatusBadge({
+  statusKey,
+  config,
+}: {
+  statusKey: 'pending' | 'running' | 'success' | 'failed';
+  config: StatusConfig;
+}) {
+  const { label, variant, icon: Icon, iconClassName, extraClassName } = config[statusKey];
   return (
-    <Badge variant="destructive" className="gap-1">
-      <XCircle className="h-3 w-3" />
-      Failed
+    <Badge variant={variant} className={`gap-1${extraClassName ? ` ${extraClassName}` : ''}`}>
+      <Icon className={`h-3 w-3${iconClassName ? ` ${iconClassName}` : ''}`} />
+      {label}
     </Badge>
   );
 }
 
-/**
- * Render a compact badge showing a compilation status with an icon and label.
- *
- * @param status - The compilation status to display
- * @returns A badge JSX element with an icon and text corresponding to `status`
- */
+function resolveCompileStatus(status: CompileStatus): 'pending' | 'running' | 'success' | 'failed' {
+  if (status === CompileStatus.PENDING) return 'pending';
+  if (status === CompileStatus.RUNNING) return 'running';
+  if (status === CompileStatus.SUCCESS) return 'success';
+  return 'failed';
+}
+
+const compileStatusConfig: StatusConfig = {
+  pending: { label: 'Pending', variant: 'secondary', icon: Clock },
+  running: { label: 'Running', variant: 'default', icon: Loader2, iconClassName: 'animate-spin' },
+  success: {
+    label: 'Success',
+    variant: 'default',
+    icon: CheckCircle,
+    extraClassName: 'bg-green-600 hover:bg-green-700',
+  },
+  failed: { label: 'Failed', variant: 'destructive', icon: XCircle },
+};
+
+function CompileStatusBadge({ status }: { status: CompileStatus }) {
+  return <StatusBadge statusKey={resolveCompileStatus(status)} config={compileStatusConfig} />;
+}
+
+function resolveCompilationStatus(
+  status: CompilationStatus,
+): 'pending' | 'running' | 'success' | 'failed' {
+  if (status === CompilationStatus.PENDING) return 'pending';
+  if (status === CompilationStatus.IN_PROGRESS) return 'running';
+  if (status === CompilationStatus.SUCCESS) return 'success';
+  return 'failed';
+}
+
+const compilationStatusConfig: StatusConfig = {
+  pending: { label: 'Pending', variant: 'secondary', icon: Clock, extraClassName: 'text-xs' },
+  running: {
+    label: 'In Progress',
+    variant: 'default',
+    icon: Loader2,
+    iconClassName: 'animate-spin',
+    extraClassName: 'text-xs',
+  },
+  success: {
+    label: 'Success',
+    variant: 'default',
+    icon: CheckCircle,
+    extraClassName: 'text-xs bg-green-600 hover:bg-green-700',
+  },
+  failed: { label: 'Failed', variant: 'destructive', icon: XCircle, extraClassName: 'text-xs' },
+};
+
 function CompilationStatusBadge({ status }: { status: CompilationStatus }) {
-  if (status === CompilationStatus.PENDING) {
-    return (
-      <Badge variant="secondary" className="text-xs gap-1">
-        <Clock className="h-3 w-3" />
-        Pending
-      </Badge>
-    );
-  }
-
-  if (status === CompilationStatus.IN_PROGRESS) {
-    return (
-      <Badge variant="default" className="text-xs gap-1">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        In Progress
-      </Badge>
-    );
-  }
-
-  if (status === CompilationStatus.SUCCESS) {
-    return (
-      <Badge variant="default" className="text-xs gap-1 bg-green-600 hover:bg-green-700">
-        <CheckCircle className="h-3 w-3" />
-        Success
-      </Badge>
-    );
-  }
-
   return (
-    <Badge variant="destructive" className="text-xs gap-1">
-      <XCircle className="h-3 w-3" />
-      Failed
-    </Badge>
+    <StatusBadge statusKey={resolveCompilationStatus(status)} config={compilationStatusConfig} />
   );
 }
 

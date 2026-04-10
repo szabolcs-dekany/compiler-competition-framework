@@ -3,7 +3,7 @@ import type { Container } from 'dockerode';
 import Docker from 'dockerode';
 import { ConfigService } from '@nestjs/config';
 import * as tar from 'tar-stream';
-import { Readable } from 'stream';
+import { PassThrough, Readable } from 'stream';
 
 export interface BuildImageParams {
   dockerfileBuffer: Buffer;
@@ -120,32 +120,81 @@ export class DockerService {
         follow: true,
       });
 
-      const chunks: Buffer[] = [];
+      const stdoutStream = new PassThrough();
+      const stderrStream = new PassThrough();
+
+      const stdoutChunks: string[] = [];
+      const stderrChunks: string[] = [];
+      let stdoutRemainder = '';
+      let stderrRemainder = '';
+
+      const flushLines = (
+        chunk: Buffer,
+        chunks: string[],
+        remainder: string,
+        onLine: (line: string) => void,
+      ): string => {
+        const text = remainder + chunk.toString('utf-8');
+        const lines = text.split('\n');
+        const newRemainder = lines.pop() ?? '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed) {
+            chunks.push(trimmed);
+            onLine(trimmed);
+          }
+        }
+        return newRemainder;
+      };
+
+      this.docker.modem.demuxStream(stream, stdoutStream, stderrStream);
 
       await new Promise<void>((resolve, reject) => {
-        stream.on('data', (chunk: Buffer) => {
-          chunks.push(chunk);
-          if (params.onLog) {
-            const output = chunk.toString('utf-8');
-            const lines = output.split('\n').filter((line) => line.trim());
-            for (const line of lines) {
-              const parsed = this.parseDockerLogLine(line);
-              if (parsed) {
-                params.onLog(parsed);
-              }
-            }
-          }
+        stdoutStream.on('data', (chunk: Buffer) => {
+          stdoutRemainder = flushLines(
+            chunk,
+            stdoutChunks,
+            stdoutRemainder,
+            (line) => {
+              params.onLog?.(line);
+            },
+          );
         });
-        stream.on('end', resolve);
-        stream.on('error', reject);
+        stderrStream.on('data', (chunk: Buffer) => {
+          stderrRemainder = flushLines(
+            chunk,
+            stderrChunks,
+            stderrRemainder,
+            (line) => {
+              params.onLog?.(line);
+            },
+          );
+        });
+        stream.on('end', () => {
+          stdoutStream.end();
+          stderrStream.end();
+          if (stdoutRemainder.trim()) {
+            stdoutChunks.push(stdoutRemainder.trim());
+            params.onLog?.(stdoutRemainder.trim());
+          }
+          if (stderrRemainder.trim()) {
+            stderrChunks.push(stderrRemainder.trim());
+            params.onLog?.(stderrRemainder.trim());
+          }
+          resolve();
+        });
+        stream.on('error', (err: unknown) => {
+          stdoutStream.end();
+          stderrStream.end();
+          reject(err instanceof Error ? err : new Error(String(err)));
+        });
       });
-
-      const output = Buffer.concat(chunks).toString('utf-8');
 
       const result = (await container.wait()) as { StatusCode?: number };
       const exitCode = timedOut ? -1 : (result.StatusCode ?? -1);
 
-      const { stdout, stderr } = this.parseDockerLogs(output);
+      const stdout = stdoutChunks.join('\n');
+      const stderr = stderrChunks.join('\n');
 
       this.logger.debug(`Container ${imageName} exited with code ${exitCode}`);
 
@@ -165,40 +214,6 @@ export class DockerService {
         this.logger.warn(`Failed to remove container: ${message}`);
       });
     }
-  }
-
-  private parseDockerLogs(output: string): { stdout: string; stderr: string } {
-    const stdoutLines: string[] = [];
-    const stderrLines: string[] = [];
-    const lines = output.split('\n');
-
-    for (const line of lines) {
-      if (line.length === 0) continue;
-
-      const streamType = line.charCodeAt(0);
-      const content = line.slice(8).trim();
-
-      if (content.length === 0) continue;
-
-      if (streamType === 1) {
-        stdoutLines.push(content);
-      } else if (streamType === 2) {
-        stderrLines.push(content);
-      } else {
-        stdoutLines.push(content);
-      }
-    }
-
-    return {
-      stdout: stdoutLines.join('\n'),
-      stderr: stderrLines.join('\n'),
-    };
-  }
-
-  private parseDockerLogLine(line: string): string | null {
-    if (line.length === 0) return null;
-    const content = line.slice(8).trim();
-    return content.length > 0 ? content : null;
   }
 
   private async createTarFromDockerfile(

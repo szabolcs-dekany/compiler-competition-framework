@@ -9,6 +9,7 @@ import {
   NotFoundException,
   BadRequestException,
   Sse,
+  Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -19,8 +20,7 @@ import {
   ApiConsumes,
   ApiBody,
 } from '@nestjs/swagger';
-import { Observable, Subject, from, merge, of, takeUntil } from 'rxjs';
-import { concatMap } from 'rxjs/operators';
+import { Observable } from 'rxjs';
 import type {
   SubmissionCompilationDto,
   CompileLogEvent,
@@ -34,6 +34,8 @@ import { Submission } from './entities/submission.entity';
 @ApiTags('submissions')
 @Controller('submissions')
 export class SubmissionsController {
+  private readonly logger = new Logger(SubmissionsController.name);
+
   constructor(
     private readonly submissionsService: SubmissionsService,
     private readonly redisLogService: RedisLogService,
@@ -130,44 +132,61 @@ export class SubmissionsController {
   streamCompileLogs(
     @Param('id') id: string,
   ): Observable<{ data: CompileLogEvent }> {
-    const close$ = new Subject<void>();
-    const realTime$ = new Subject<{ data: CompileLogEvent }>();
-
-    void (async () => {
-      const unsubscribe = await this.redisLogService.subscribe(id, (event) => {
-        const logEvent = event as CompileLogEvent;
-        realTime$.next({ data: logEvent });
-        if (logEvent.type === 'complete' || logEvent.type === 'error') {
-          realTime$.complete();
-          close$.next();
-          void unsubscribe();
-        }
+    return new Observable<{ data: CompileLogEvent }>((subscriber) => {
+      subscriber.next({
+        data: { type: 'status', status: CompileStatus.RUNNING },
       });
 
-      close$.subscribe({
-        complete: () => {
-          void unsubscribe();
+      const unsubscribePromise = this.redisLogService.subscribeWithReplay(
+        id,
+        (event) => {
+          const logEvent = event as CompileLogEvent;
+          subscriber.next({ data: logEvent });
+
+          if (logEvent.type === 'complete') {
+            stopStream();
+            subscriber.complete();
+          }
         },
+      );
+
+      let stopped = false;
+
+      const stopStream = (): void => {
+        if (stopped) {
+          return;
+        }
+
+        stopped = true;
+
+        void unsubscribePromise
+          .then((unsubscribe) => unsubscribe())
+          .catch((error: unknown) => {
+            const message =
+              error instanceof Error ? error.message : 'Unknown error';
+            this.logger.error(
+              `Failed to close compile log stream for ${id}: ${message}`,
+            );
+          });
+      };
+
+      void unsubscribePromise.catch((error: unknown) => {
+        if (stopped) {
+          return;
+        }
+
+        const streamError =
+          error instanceof Error ? error : new Error('Failed to stream logs');
+        this.logger.error(
+          `Failed to start compile log stream for ${id}: ${streamError.message}`,
+        );
+        subscriber.error(streamError);
       });
-    })();
 
-    const history$ = from(this.redisLogService.getLogHistory(id)).pipe(
-      concatMap((lines) =>
-        from(
-          lines.map((line): { data: CompileLogEvent } => ({
-            data: { type: 'log', message: line },
-          })),
-        ),
-      ),
-    );
-
-    const status$ = of<{ data: CompileLogEvent }>({
-      data: { type: 'status', status: CompileStatus.RUNNING },
+      return () => {
+        stopStream();
+      };
     });
-
-    return merge(status$, history$, realTime$).pipe(
-      takeUntil(close$ as Observable<unknown>),
-    );
   }
 
   @Get(':id')

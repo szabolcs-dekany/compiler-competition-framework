@@ -301,7 +301,7 @@ export class SourceFilesService {
       originalName: sf.originalName,
       extension: sf.extension,
       size: sf.size,
-      checksum: sf.checksum,
+      checksum: sf.checksum?.slice(0, 8) ?? sf.checksum,
       version: sf.version,
       s3Key: sf.s3Key,
       uploadedAt: sf.uploadedAt.toISOString(),

@@ -12,6 +12,7 @@ import {
   Header,
   NotFoundException,
   Sse,
+  Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -23,8 +24,7 @@ import {
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
-import { Observable, Subject, from, merge, of, takeUntil } from 'rxjs';
-import { concatMap } from 'rxjs/operators';
+import { Observable } from 'rxjs';
 import type {
   DockerfileVersionDto,
   DockerfileListDto,
@@ -39,6 +39,8 @@ import { DockerfileListEntity } from './entities/dockerfile-list.entity';
 @ApiTags('dockerfiles')
 @Controller('dockerfiles')
 export class DockerfilesController {
+  private readonly logger = new Logger(DockerfilesController.name);
+
   constructor(
     private readonly dockerfilesService: DockerfilesService,
     private readonly redisLogService: RedisLogService,
@@ -177,47 +179,62 @@ export class DockerfilesController {
   ): Observable<{ data: BuildLogEvent }> {
     const versionNum = parseInt(version, 10);
     const channel = `docker-build:${id}:${versionNum}`;
-    const close$ = new Subject<void>();
-    const realTime$ = new Subject<{ data: BuildLogEvent }>();
 
-    void (async () => {
-      const unsubscribe = await this.redisLogService.subscribe(
+    return new Observable<{ data: BuildLogEvent }>((subscriber) => {
+      subscriber.next({
+        data: { type: 'status', status: 'BUILDING' },
+      });
+
+      const unsubscribePromise = this.redisLogService.subscribeWithReplay(
         channel,
         (event) => {
           const logEvent = event as BuildLogEvent;
-          realTime$.next({ data: logEvent });
+          subscriber.next({ data: logEvent });
+
           if (logEvent.type === 'complete' || logEvent.type === 'error') {
-            realTime$.complete();
-            close$.next();
-            void unsubscribe();
+            stopStream();
+            subscriber.complete();
           }
         },
       );
 
-      close$.subscribe({
-        complete: () => {
-          void unsubscribe();
-        },
+      let stopped = false;
+
+      const stopStream = (): void => {
+        if (stopped) {
+          return;
+        }
+
+        stopped = true;
+
+        void unsubscribePromise
+          .then((unsubscribe) => unsubscribe())
+          .catch((error: unknown) => {
+            const message =
+              error instanceof Error ? error.message : 'Unknown error';
+            this.logger.error(
+              `Failed to close build log stream for ${channel}: ${message}`,
+            );
+          });
+      };
+
+      void unsubscribePromise.catch((error: unknown) => {
+        if (stopped) {
+          return;
+        }
+
+        const streamError =
+          error instanceof Error ? error : new Error('Failed to stream logs');
+        this.logger.error(
+          `Failed to start build log stream for ${channel}: ${streamError.message}`,
+        );
+        subscriber.error(streamError);
       });
-    })();
 
-    const history$ = from(this.redisLogService.getLogHistory(channel)).pipe(
-      concatMap((lines) =>
-        from(
-          lines.map((line): { data: BuildLogEvent } => ({
-            data: { type: 'log', message: line },
-          })),
-        ),
-      ),
-    );
-
-    const status$ = of<{ data: BuildLogEvent }>({
-      data: { type: 'status', status: 'BUILDING' },
+      return () => {
+        stopStream();
+      };
     });
-
-    return merge(status$, history$, realTime$).pipe(
-      takeUntil(close$ as Observable<unknown>),
-    );
   }
 
   @Get(':id/download')

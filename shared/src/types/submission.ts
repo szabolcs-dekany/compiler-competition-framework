@@ -23,7 +23,7 @@ export interface CreateSubmissionDto {
 }
 
 export interface CompileLogEvent {
-  type: 'log' | 'status' | 'complete' | 'error';
+  type: 'log' | 'status' | 'complete';
   message?: string;
   status?: CompileStatus;
 }
