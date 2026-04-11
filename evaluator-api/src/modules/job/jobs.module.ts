@@ -13,6 +13,8 @@ import { TestRunExecutionService } from './services/test-run-execution.service';
 import { CompileTeamLockService } from './services/compile/compile-team-lock.service';
 import { CompileWorkspaceService } from './services/compile/compile-workspace.service';
 import { CompileExecutionService } from './services/compile/compile-execution.service';
+import { EvaluateWorkspaceService } from './services/evaluate/evaluate-workspace.service';
+import { EvaluateAttemptService } from './services/evaluate/evaluate-attempt.service';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { CompileExecutionService } from './services/compile/compile-execution.se
     CompileExecutionService,
     CompileQueueConsumerService,
     DockerfileQueueConsumerService,
+    EvaluateWorkspaceService,
+    EvaluateAttemptService,
     EvaluateQueueConsumerService,
     TestRunExecutionService,
     PrismaService,
