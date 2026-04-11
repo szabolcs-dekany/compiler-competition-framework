@@ -27,7 +27,7 @@ export class DockerfilesService {
   async findAll(): Promise<DockerfileListDto[]> {
     const dockerfiles = await this.prisma.dockerfile.findMany({
       include: { team: true },
-      orderBy: { uploadedAt: 'desc' },
+      orderBy: { team: { name: 'asc' } },
     });
 
     return dockerfiles.map((df) => ({
@@ -45,7 +45,7 @@ export class DockerfilesService {
     const dockerfiles = await this.prisma.dockerfile.findMany({
       where: { teamId: teamId },
       include: { team: true },
-      orderBy: { uploadedAt: 'desc' },
+      orderBy: { team: { name: 'asc' } },
     });
 
     return dockerfiles.map((df) => this.toDto(df));
