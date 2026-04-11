@@ -273,6 +273,7 @@ function SubmissionTableRow({
   useSubmissionCompileStream({
     submissionId: submission.id,
     submissionStatus: submission.status,
+    enabled: expanded,
   });
 
   return (

@@ -90,8 +90,12 @@ export function useSubmissionCompileStream({
   onLog,
 }: UseSubmissionCompileStreamOptions): void {
   const queryClient = useQueryClient();
+  const terminalStatuses: SubmissionStatus[] = [
+    SubmissionStatus.COMPLETED,
+    SubmissionStatus.FAILED,
+  ];
   const shouldStream =
-    enabled && submissionStatus !== SubmissionStatus.COMPLETED;
+    enabled && !terminalStatuses.includes(submissionStatus);
 
   useEventSource({
     url: submissionsApi.getCompileLogStreamUrl(submissionId),

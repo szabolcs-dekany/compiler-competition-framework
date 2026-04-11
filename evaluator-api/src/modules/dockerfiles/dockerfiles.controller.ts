@@ -1,34 +1,33 @@
 import {
   Controller,
   Get,
+  Header,
+  Logger,
+  NotFoundException,
+  Param,
   Post,
   Put,
-  Body,
-  Param,
   Query,
-  UseInterceptors,
-  UploadedFile,
-  StreamableFile,
-  Header,
-  NotFoundException,
   Sse,
-  Logger,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiConsumes,
   ApiBody,
+  ApiConsumes,
+  ApiOperation,
   ApiParam,
   ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
 import type {
-  DockerfileVersionDto,
-  DockerfileListDto,
   BuildLogEvent,
+  DockerfileListDto,
+  DockerfileVersionDto,
 } from '@evaluator/shared';
 import { RedisLogService } from '../../common/redis/redis-log.service';
 import { isBuildLogEvent } from '../../common/redis/stream-event-guards';

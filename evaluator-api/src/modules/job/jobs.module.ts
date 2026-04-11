@@ -10,6 +10,9 @@ import { DockerfileQueueConsumerService } from './services/dockerfile-queue-cons
 import { EvaluateQueueConsumerService } from './services/evaluate-queue-consumer.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TestRunExecutionService } from './services/test-run-execution.service';
+import { CompileTeamLockService } from './services/compile/compile-team-lock.service';
+import { CompileWorkspaceService } from './services/compile/compile-workspace.service';
+import { CompileExecutionService } from './services/compile/compile-execution.service';
 
 @Module({
   imports: [
@@ -22,6 +25,9 @@ import { TestRunExecutionService } from './services/test-run-execution.service';
   ],
   controllers: [],
   providers: [
+    CompileTeamLockService,
+    CompileWorkspaceService,
+    CompileExecutionService,
     CompileQueueConsumerService,
     DockerfileQueueConsumerService,
     EvaluateQueueConsumerService,
