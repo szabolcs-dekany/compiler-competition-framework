@@ -4,36 +4,12 @@ import Docker from 'dockerode';
 import { ConfigService } from '@nestjs/config';
 import * as tar from 'tar-stream';
 import { PassThrough, Readable } from 'stream';
-
-export interface BuildImageParams {
-  dockerfileBuffer: Buffer;
-  teamId: string;
-  version: number;
-  dockerfileId: string;
-  onLog?: (message: string) => void;
-}
-
-export interface BuildImageResult {
-  imageName: string;
-  buildLog: string[];
-}
-
-export interface RunContainerParams {
-  imageName: string;
-  command: string[];
-  mountPath: string;
-  containerPath: string;
-  submissionId?: string;
-  version?: number;
-  timeoutMs?: number;
-  onLog?: (message: string) => void;
-}
-
-export interface RunContainerResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
+import type {
+  BuildImageParams,
+  BuildImageResult,
+  RunContainerParams,
+  RunContainerResult,
+} from './docker.types';
 
 @Injectable()
 export class DockerService {
@@ -79,7 +55,21 @@ export class DockerService {
   }
 
   async runContainer(params: RunContainerParams): Promise<RunContainerResult> {
-    const { imageName, command, mountPath, containerPath, timeoutMs } = params;
+    const {
+      imageName,
+      command,
+      mountPath,
+      containerPath,
+      scratchHostPath,
+      scratchContainerPath = '/scratch',
+      env,
+      timeoutMs,
+      stdin,
+      memoryMb,
+      cpuCount = 1,
+      pidsLimit = 100,
+      readOnlyMount = false,
+    } = params;
 
     this.logger.debug(
       `Running container ${imageName} with command: ${command.join(' ')}`,
@@ -89,8 +79,33 @@ export class DockerService {
       Image: imageName,
       Cmd: command,
       WorkingDir: containerPath,
+      AttachStdout: true,
+      AttachStderr: true,
+      AttachStdin: stdin !== undefined,
+      OpenStdin: stdin !== undefined,
+      StdinOnce: stdin !== undefined,
+      Env: env ?? ['HOME=/tmp'],
       HostConfig: {
-        Binds: [`${mountPath}:${containerPath}`],
+        Binds: [
+          `${mountPath}:${containerPath}${readOnlyMount ? ':ro' : ''}`,
+          ...(scratchHostPath
+            ? [`${scratchHostPath}:${scratchContainerPath}`]
+            : []),
+        ],
+        NetworkMode: 'none',
+        ReadonlyRootfs: true,
+        PidsLimit: pidsLimit,
+        NanoCpus: Math.max(1, cpuCount) * 1_000_000_000,
+        ...(typeof memoryMb === 'number'
+          ? {
+              Memory: memoryMb * 1024 * 1024,
+              MemorySwap: memoryMb * 1024 * 1024,
+            }
+          : {}),
+        SecurityOpt: ['no-new-privileges'],
+        Tmpfs: {
+          '/tmp': 'rw,noexec,nosuid,size=10485760',
+        },
       },
     });
 
@@ -98,7 +113,19 @@ export class DockerService {
     let timedOut = false;
 
     try {
+      const stream = await container.attach({
+        stream: true,
+        stdout: true,
+        stderr: true,
+        stdin: stdin !== undefined,
+      });
+
       await container.start();
+
+      if (stdin !== undefined) {
+        stream.write(stdin ?? '');
+        stream.end();
+      }
 
       if (timeoutMs) {
         timeoutId = setTimeout(() => {
@@ -113,12 +140,6 @@ export class DockerService {
           });
         }, timeoutMs);
       }
-
-      const stream = await container.logs({
-        stdout: true,
-        stderr: true,
-        follow: true,
-      });
 
       const stdoutStream = new PassThrough();
       const stderrStream = new PassThrough();

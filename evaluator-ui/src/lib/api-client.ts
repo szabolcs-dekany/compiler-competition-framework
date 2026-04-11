@@ -1,4 +1,20 @@
-import type { TeamDto, CreateTeamDto, TestCaseBlueprint, SubmissionDto, CreateSubmissionDto, SubmissionCompilationDto, SourceFileDto, SourceFileListDto, UploadSourceFileDto, SourceFileVersionDto, DockerfileDto, DockerfileListDto, DockerfileVersionDto } from '@evaluator/shared';
+import type {
+  TeamDto,
+  CreateTeamDto,
+  TestCaseBlueprint,
+  SubmissionDto,
+  CreateSubmissionDto,
+  SubmissionCompilationDto,
+  SourceFileDto,
+  SourceFileListDto,
+  UploadSourceFileDto,
+  SourceFileVersionDto,
+  DockerfileDto,
+  DockerfileListDto,
+  DockerfileVersionDto,
+  TestRunDto,
+  TestRunAttemptDto,
+} from '@evaluator/shared';
 
 const API_BASE = '/api';
 
@@ -50,6 +66,11 @@ export const submissionsApi = {
   listByTeam: (teamId: string) => fetchJson<SubmissionDto[]>(`${API_BASE}/submissions/team/${teamId}`),
   
   compilations: (submissionId: string) => fetchJson<SubmissionCompilationDto[]>(`${API_BASE}/submissions/${submissionId}/compilations`),
+
+  testRuns: (submissionId: string) => fetchJson<TestRunDto[]>(`${API_BASE}/submissions/${submissionId}/test-runs`),
+
+  testRunAttempts: (submissionId: string, testCaseId: string) =>
+    fetchJson<TestRunAttemptDto[]>(`${API_BASE}/submissions/${submissionId}/test-runs/${testCaseId}/attempts`),
   
   getCompileLogs: (id: string) => fetchJson<{ logs: string }>(`${API_BASE}/submissions/${id}/compile-logs`),
   

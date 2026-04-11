@@ -54,6 +54,8 @@ export class SourceFilesService {
         data: {
           sourceFileId: existing.id,
           version,
+          originalName: file.originalname,
+          extension,
           s3Key,
           size: file.size,
           checksum,
@@ -93,6 +95,8 @@ export class SourceFilesService {
       data: {
         sourceFileId: sourceFile.id,
         version,
+        originalName: file.originalname,
+        extension,
         s3Key,
         size: file.size,
         checksum,
@@ -250,6 +254,8 @@ export class SourceFilesService {
       data: {
         sourceFileId: existing.id,
         version: newVersion,
+        originalName: file.originalname,
+        extension,
         s3Key,
         size: file.size,
         checksum,

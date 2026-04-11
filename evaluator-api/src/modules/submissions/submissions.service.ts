@@ -1,16 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import * as path from 'path';
-import { PrismaService } from '../../common/prisma/prisma.service';
-import { StorageService } from '../../common/storage/storage.service';
-import { TestCasesService } from '../test-cases/test-cases.service';
-import { CreateSubmissionDto } from './dto/create-submission.dto';
-import { Submission } from './entities/submission.entity';
 import type {
   SubmissionCompilationDto,
   SubmissionDto,
+  TestRunAttemptDto,
+  TestRunDto,
 } from '@evaluator/shared';
 import { CompilationStatus } from '@evaluator/shared';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { StorageService } from '../../common/storage/storage.service';
+import { TestCasesService } from '../test-cases/test-cases.service';
 import { CompileQueueService } from '../queue/compile-queue.service';
+import { CreateSubmissionDto } from './dto/create-submission.dto';
+import { Submission } from './entities/submission.entity';
 
 @Injectable()
 export class SubmissionsService {
@@ -27,7 +29,26 @@ export class SubmissionsService {
   ): Promise<Submission> {
     const team = await this.prisma.team.findUnique({
       where: { id: createSubmissionDto.teamId },
-      include: { submissions: { orderBy: { version: 'desc' }, take: 1 } },
+      include: {
+        submissions: { orderBy: { version: 'desc' }, take: 1 },
+        dockerfile: {
+          include: {
+            versions: {
+              orderBy: { version: 'desc' },
+              take: 1,
+            },
+          },
+        },
+        sourceFiles: {
+          orderBy: { testCaseId: 'asc' },
+          include: {
+            versions: {
+              orderBy: { version: 'desc' },
+              take: 1,
+            },
+          },
+        },
+      },
     });
 
     if (!team) {
@@ -38,13 +59,26 @@ export class SubmissionsService {
 
     const nextVersion =
       team.submissions.length > 0 ? team.submissions[0].version + 1 : 1;
-
     const originalName = file.originalname || 'compiler';
     const extension = path.extname(originalName) || '';
+    const dockerfileVersion = team.dockerfile?.versions.at(0) ?? null;
+    const dockerImageName =
+      dockerfileVersion?.buildStatus === 'SUCCESS'
+        ? (dockerfileVersion.imageName ?? team.dockerfile?.imageName ?? null)
+        : null;
+    const sourceFileVersionIds = team.sourceFiles
+      .map((sourceFile) => sourceFile.versions.at(0)?.id ?? null)
+      .filter(
+        (sourceFileVersionId): sourceFileVersionId is string =>
+          typeof sourceFileVersionId === 'string',
+      );
 
     const submission = await this.prisma.submission.create({
       data: {
         teamId: createSubmissionDto.teamId,
+        dockerfileId: team.dockerfile?.id ?? null,
+        dockerfileVersion: dockerfileVersion?.version ?? null,
+        dockerImageName,
         version: nextVersion,
         originalName,
         extension,
@@ -63,6 +97,15 @@ export class SubmissionsService {
 
     try {
       await this.storage.uploadFile(key, file.buffer, file.mimetype);
+
+      if (sourceFileVersionIds.length > 0) {
+        await this.prisma.compilation.createMany({
+          data: sourceFileVersionIds.map((sourceFileVersionId) => ({
+            sourceFileVersionId,
+            submissionId: submission.id,
+          })),
+        });
+      }
 
       const updatedSubmission = await this.prisma.submission.update({
         where: { id: submission.id },
@@ -106,9 +149,9 @@ export class SubmissionsService {
       },
     });
 
-    return submissions.map((s) => ({
-      ...s,
-      teamName: s.team.name,
+    return submissions.map((submission) => ({
+      ...submission,
+      teamName: submission.team.name,
     }));
   }
 
@@ -127,9 +170,9 @@ export class SubmissionsService {
       },
     });
 
-    return submissions.map((s) => ({
-      ...s,
-      teamName: s.team.name,
+    return submissions.map((submission) => ({
+      ...submission,
+      teamName: submission.team.name,
     }));
   }
 
@@ -202,7 +245,6 @@ export class SubmissionsService {
     }
 
     const allTestCases = this.testCasesService.findAll();
-
     const compilations = await this.prisma.compilation.findMany({
       where: { submissionId },
       include: {
@@ -212,32 +254,47 @@ export class SubmissionsService {
           },
         },
       },
+      orderBy: {
+        id: 'asc',
+      },
     });
 
     const compilationMap = new Map(
-      compilations.map((c) => [c.sourceFileVersion.sourceFile.testCaseId, c]),
+      compilations.map((compilation) => [
+        compilation.sourceFileVersion.sourceFile.testCaseId,
+        compilation,
+      ]),
     );
+    const missingCompilationStatus =
+      submission.compileStatus === 'PENDING' ||
+      submission.compileStatus === 'RUNNING'
+        ? CompilationStatus.PENDING
+        : CompilationStatus.FAILED;
+    const missingCompilationError =
+      missingCompilationStatus === CompilationStatus.FAILED
+        ? 'No source file snapshot available for this submission'
+        : null;
 
-    return allTestCases.map((tc) => {
-      const existing = compilationMap.get(tc.id);
+    return allTestCases.map((testCase) => {
+      const existing = compilationMap.get(testCase.id);
 
       if (existing) {
-        return this.toCompilationDto(existing, tc);
+        return this.toCompilationDto(existing, testCase);
       }
 
       return {
-        id: `pending-${tc.id}`,
+        id: `missing-${submissionId}-${testCase.id}`,
         submissionId,
-        testCaseId: tc.id,
-        status: CompilationStatus.PENDING,
-        errorMessage: null,
+        testCaseId: testCase.id,
+        status: missingCompilationStatus,
+        errorMessage: missingCompilationError,
         startedAt: null,
         completedAt: null,
         testCase: {
-          id: tc.id,
-          name: tc.name,
-          category: tc.category,
-          points: tc.points,
+          id: testCase.id,
+          name: testCase.name,
+          category: testCase.category,
+          points: testCase.points,
         },
       };
     });
@@ -269,6 +326,85 @@ export class SubmissionsService {
     return this.toCompilationDto(compilation, testCase);
   }
 
+  async findTestRuns(submissionId: string): Promise<TestRunDto[]> {
+    await this.ensureSubmissionExists(submissionId);
+
+    const testRuns = await this.prisma.testRun.findMany({
+      where: { submissionId },
+      include: {
+        attempts: true,
+      },
+      orderBy: {
+        testCaseId: 'asc',
+      },
+    });
+
+    return testRuns.map((testRun) => this.toTestRunDto(testRun));
+  }
+
+  async getTestRunDto(testRunId: string): Promise<TestRunDto> {
+    const testRun = await this.prisma.testRun.findUnique({
+      where: { id: testRunId },
+      include: {
+        attempts: true,
+      },
+    });
+
+    if (!testRun) {
+      throw new NotFoundException(`Test run with id ${testRunId} not found`);
+    }
+
+    return this.toTestRunDto(testRun);
+  }
+
+  async getTestRunDtoByCompilationId(
+    compilationId: string,
+  ): Promise<TestRunDto> {
+    const testRun = await this.prisma.testRun.findUnique({
+      where: { compilationId },
+      include: {
+        attempts: true,
+      },
+    });
+
+    if (!testRun) {
+      throw new NotFoundException(
+        `Test run for compilation ${compilationId} not found`,
+      );
+    }
+
+    return this.toTestRunDto(testRun);
+  }
+
+  async getTestRunAttempts(
+    submissionId: string,
+    testCaseId: string,
+  ): Promise<TestRunAttemptDto[]> {
+    const testRun = await this.prisma.testRun.findUnique({
+      where: {
+        submissionId_testCaseId: {
+          submissionId,
+          testCaseId,
+        },
+      },
+      include: {
+        attempts: {
+          orderBy: {
+            attemptIndex: 'asc',
+          },
+        },
+      },
+    });
+
+    if (!testRun) {
+      throw new NotFoundException(
+        `Test run for submission ${submissionId} and test case ${testCaseId} not found`,
+      );
+    }
+
+    return testRun.attempts.map((attempt) => this.toTestRunAttemptDto(attempt));
+  }
+
   async getCompileLogs(submissionId: string): Promise<string> {
     const submission = await this.prisma.submission.findUnique({
       where: { id: submissionId },
@@ -288,6 +424,19 @@ export class SubmissionsService {
 
     const logBuffer = await this.storage.getFile(submission.compileLogS3Key);
     return logBuffer.toString('utf-8');
+  }
+
+  private async ensureSubmissionExists(submissionId: string): Promise<void> {
+    const submission = await this.prisma.submission.findUnique({
+      where: { id: submissionId },
+      select: { id: true },
+    });
+
+    if (!submission) {
+      throw new NotFoundException(
+        `Submission with id ${submissionId} not found`,
+      );
+    }
   }
 
   private toSubmissionDto(submission: {
@@ -356,6 +505,107 @@ export class SubmissionsService {
         category: testCase.category,
         points: testCase.points,
       },
+    };
+  }
+
+  private toTestRunDto(testRun: {
+    id: string;
+    submissionId: string;
+    compilationId: string | null;
+    testCaseId: string;
+    status: string;
+    compileSuccess: boolean | null;
+    compileTimeMs: number | null;
+    runSuccess: boolean | null;
+    runTimeMs: number | null;
+    actualStdout: string | null;
+    actualStderr: string | null;
+    expectedStdout: string | null;
+    expectedExitCode: number | null;
+    actualExitCode: number | null;
+    pointsEarned: number;
+    bonusEarned: number;
+    errorMessage: string | null;
+    createdAt: Date;
+    completedAt: Date | null;
+    attempts: Array<{ passed: boolean | null }>;
+  }): TestRunDto {
+    const testCase = this.testCasesService.findOne(testRun.testCaseId);
+
+    return {
+      id: testRun.id,
+      submissionId: testRun.submissionId,
+      compilationId: testRun.compilationId,
+      testCaseId: testRun.testCaseId,
+      status: testRun.status as TestRunDto['status'],
+      compileSuccess: testRun.compileSuccess,
+      compileTimeMs: testRun.compileTimeMs,
+      runSuccess: testRun.runSuccess,
+      runTimeMs: testRun.runTimeMs,
+      actualStdout: testRun.actualStdout,
+      actualStderr: testRun.actualStderr,
+      expectedStdout: testRun.expectedStdout,
+      expectedExitCode: testRun.expectedExitCode,
+      actualExitCode: testRun.actualExitCode,
+      pointsEarned: testRun.pointsEarned,
+      bonusEarned: testRun.bonusEarned,
+      errorMessage: testRun.errorMessage,
+      attemptCount: testRun.attempts.length,
+      passedAttempts: testRun.attempts.filter((attempt) => attempt.passed)
+        .length,
+      createdAt: testRun.createdAt.toISOString(),
+      completedAt: testRun.completedAt?.toISOString() ?? null,
+      testCase: {
+        id: testCase.id,
+        name: testCase.name,
+        category: testCase.category,
+        points: testCase.points,
+      },
+    };
+  }
+
+  private toTestRunAttemptDto(attempt: {
+    id: string;
+    testRunId: string;
+    attemptIndex: number;
+    seed: string;
+    generatedInputs: unknown;
+    stdin: string | null;
+    validationMode: string;
+    expectedStdout: string | null;
+    expectedExitCode: number;
+    actualStdout: string | null;
+    actualStderr: string | null;
+    actualExitCode: number | null;
+    runTimeMs: number | null;
+    passed: boolean | null;
+    errorMessage: string | null;
+    createdAt: Date;
+    completedAt: Date | null;
+  }): TestRunAttemptDto {
+    return {
+      id: attempt.id,
+      testRunId: attempt.testRunId,
+      attemptIndex: attempt.attemptIndex,
+      seed: attempt.seed,
+      generatedInputs:
+        typeof attempt.generatedInputs === 'object' &&
+        attempt.generatedInputs !== null
+          ? (attempt.generatedInputs as Record<string, number | string>)
+          : {},
+      stdin: attempt.stdin,
+      validationMode:
+        attempt.validationMode as TestRunAttemptDto['validationMode'],
+      expectedStdout: attempt.expectedStdout,
+      expectedExitCode: attempt.expectedExitCode,
+      actualStdout: attempt.actualStdout,
+      actualStderr: attempt.actualStderr,
+      actualExitCode: attempt.actualExitCode,
+      runTimeMs: attempt.runTimeMs,
+      passed: attempt.passed,
+      errorMessage: attempt.errorMessage,
+      createdAt: attempt.createdAt.toISOString(),
+      completedAt: attempt.completedAt?.toISOString() ?? null,
     };
   }
 }

@@ -47,6 +47,9 @@ export class TestCaseBlueprintDto {
   @ApiProperty({ enum: [1, 2, 3], example: 1 })
   difficulty: 1 | 2 | 3;
 
+  @ApiProperty({ enum: ['fixed', 'generator'], example: 'generator' })
+  mode: 'fixed' | 'generator';
+
   @ApiProperty({ example: [] })
   args: string[];
 

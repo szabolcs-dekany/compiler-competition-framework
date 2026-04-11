@@ -12,7 +12,7 @@ export interface DockerBuildJobData {
 
 export interface EvaluateJobData {
   submissionId: string;
-  testCaseId: string;
+  compilationId: string;
 }
 
 export interface CleanupJobData {

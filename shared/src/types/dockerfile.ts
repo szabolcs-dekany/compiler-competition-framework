@@ -28,6 +28,7 @@ export interface DockerfileVersionDto {
   version: number;
   size: number;
   checksum: string;
+  imageName?: string | null;
   uploadedAt: string;
   buildStatus: BuildStatus;
   buildLogS3Key?: string | null;

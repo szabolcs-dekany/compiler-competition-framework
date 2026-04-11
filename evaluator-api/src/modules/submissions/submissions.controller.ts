@@ -1,29 +1,31 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
-  Post,
-  Param,
-  Body,
-  UseInterceptors,
-  UploadedFile,
-  NotFoundException,
-  BadRequestException,
-  Sse,
   Logger,
+  NotFoundException,
+  Param,
+  Post,
+  Sse,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiConsumes,
   ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
 import type {
-  SubmissionCompilationDto,
   CompileLogEvent,
+  SubmissionCompilationDto,
+  TestRunAttemptDto,
+  TestRunDto,
 } from '@evaluator/shared';
 import { RedisLogService } from '../../common/redis/redis-log.service';
 import { isCompileLogEvent } from '../../common/redis/stream-event-guards';
@@ -114,6 +116,36 @@ export class SubmissionsController {
     @Param('id') id: string,
   ): Promise<SubmissionCompilationDto[]> {
     return this.submissionsService.findCompilations(id);
+  }
+
+  @Get(':id/test-runs')
+  @ApiOperation({ summary: 'Get evaluation summaries for a submission' })
+  @ApiParam({ name: 'id', description: 'Submission ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of evaluation summaries',
+  })
+  @ApiResponse({ status: 404, description: 'Submission not found' })
+  findTestRuns(@Param('id') id: string): Promise<TestRunDto[]> {
+    return this.submissionsService.findTestRuns(id);
+  }
+
+  @Get(':id/test-runs/:testCaseId/attempts')
+  @ApiOperation({
+    summary: 'Get generated attempts for a submission test case',
+  })
+  @ApiParam({ name: 'id', description: 'Submission ID' })
+  @ApiParam({ name: 'testCaseId', description: 'Test case ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of attempt details',
+  })
+  @ApiResponse({ status: 404, description: 'Test run not found' })
+  findTestRunAttempts(
+    @Param('id') id: string,
+    @Param('testCaseId') testCaseId: string,
+  ): Promise<TestRunAttemptDto[]> {
+    return this.submissionsService.getTestRunAttempts(id, testCaseId);
   }
 
   @Get(':id/compile-logs')

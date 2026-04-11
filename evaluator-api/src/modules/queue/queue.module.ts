@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bull';
 import { CompileQueueService } from './compile-queue.service';
 import { DockerfileQueueService } from './dockerfile-queue.service';
+import { EvaluateQueueService } from './evaluate-queue.service';
 
 @Module({
   imports: [
@@ -55,7 +56,12 @@ import { DockerfileQueueService } from './dockerfile-queue.service';
       },
     ),
   ],
-  providers: [CompileQueueService, DockerfileQueueService],
-  exports: [CompileQueueService, DockerfileQueueService],
+  providers: [
+    CompileQueueService,
+    DockerfileQueueService,
+    EvaluateQueueService,
+  ],
+
+  exports: [CompileQueueService, DockerfileQueueService, EvaluateQueueService],
 })
 export class QueueModule {}

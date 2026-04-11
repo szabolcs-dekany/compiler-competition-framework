@@ -357,6 +357,7 @@ export class DockerfilesService {
     version: number;
     size: number;
     checksum: string;
+    imageName: string | null;
     uploadedAt: Date;
     buildStatus: DockerfileVersionDto['buildStatus'];
     buildLogS3Key: string | null;
@@ -370,6 +371,7 @@ export class DockerfilesService {
       version: versionRecord.version,
       size: versionRecord.size,
       checksum: versionRecord.checksum,
+      imageName: versionRecord.imageName,
       uploadedAt: versionRecord.uploadedAt.toISOString(),
       buildStatus: versionRecord.buildStatus,
       buildLogS3Key: versionRecord.buildLogS3Key,

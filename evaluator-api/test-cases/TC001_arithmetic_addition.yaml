@@ -22,6 +22,6 @@ generator:
       type: int
       min: 1
       max: 1000
-  stdin: "${a}\n${b}"
+  stdin: "${a} ${b}"
   expected_stdout: "${a + b}"
   expected_exit_code: 0

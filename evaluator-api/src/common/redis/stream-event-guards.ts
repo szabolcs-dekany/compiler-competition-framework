@@ -16,6 +16,15 @@ const COMPILATION_STATUSES = new Set([
   'SUCCESS',
   'FAILED',
 ]);
+const TEST_RUN_STATUSES = new Set([
+  'PENDING',
+  'COMPILING',
+  'RUNNING',
+  'PASSED',
+  'FAILED',
+  'TIMEOUT',
+  'ERROR',
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -90,6 +99,40 @@ function isSubmissionCompilationDto(value: unknown): boolean {
   );
 }
 
+function isTestRunDto(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.submissionId === 'string' &&
+    typeof value.testCaseId === 'string' &&
+    isOptionalString(value.compilationId) &&
+    typeof value.status === 'string' &&
+    TEST_RUN_STATUSES.has(value.status) &&
+    (value.compileSuccess === null ||
+      typeof value.compileSuccess === 'boolean') &&
+    isOptionalNumber(value.compileTimeMs) &&
+    (value.runSuccess === null || typeof value.runSuccess === 'boolean') &&
+    isOptionalNumber(value.runTimeMs) &&
+    isOptionalString(value.actualStdout) &&
+    isOptionalString(value.actualStderr) &&
+    isOptionalString(value.expectedStdout) &&
+    isOptionalNumber(value.expectedExitCode) &&
+    isOptionalNumber(value.actualExitCode) &&
+    typeof value.pointsEarned === 'number' &&
+    typeof value.bonusEarned === 'number' &&
+    isOptionalString(value.errorMessage) &&
+    typeof value.attemptCount === 'number' &&
+    typeof value.passedAttempts === 'number' &&
+    typeof value.createdAt === 'string' &&
+    isOptionalString(value.completedAt) &&
+    isRecord(value.testCase) &&
+    typeof value.testCase.id === 'string' &&
+    typeof value.testCase.name === 'string' &&
+    typeof value.testCase.category === 'string' &&
+    typeof value.testCase.points === 'number'
+  );
+}
+
 export function isBuildLogEvent(value: unknown): value is BuildLogEvent {
   if (!isRecord(value) || typeof value.type !== 'string') {
     return false;
@@ -117,6 +160,10 @@ export function isCompileLogEvent(value: unknown): value is CompileLogEvent {
 
   if (value.type === 'compilation-status') {
     return isSubmissionCompilationDto(value.compilation);
+  }
+
+  if (value.type === 'test-run-status') {
+    return isTestRunDto(value.testRun);
   }
 
   if (value.type === 'status' || value.type === 'complete') {

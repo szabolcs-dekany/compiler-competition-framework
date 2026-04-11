@@ -7,7 +7,9 @@ import { QueueModule } from '../queue/queue.module';
 import { StorageModule } from '../../common/storage/storage.module';
 import { DockerModule } from '../docker/docker.module';
 import { DockerfileQueueConsumerService } from './services/dockerfile-queue-consumer.service';
+import { EvaluateQueueConsumerService } from './services/evaluate-queue-consumer.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { TestRunExecutionService } from './services/test-run-execution.service';
 
 @Module({
   imports: [
@@ -22,6 +24,8 @@ import { PrismaService } from '../../common/prisma/prisma.service';
   providers: [
     CompileQueueConsumerService,
     DockerfileQueueConsumerService,
+    EvaluateQueueConsumerService,
+    TestRunExecutionService,
     PrismaService,
   ],
   exports: [],

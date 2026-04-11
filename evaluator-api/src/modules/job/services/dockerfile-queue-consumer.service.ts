@@ -8,13 +8,7 @@ import { StorageService } from '../../../common/storage/storage.service';
 import { DockerService } from '../../docker/docker.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { RedisLogService } from '../../../common/redis/redis-log.service';
-
-interface BuildContext {
-  dockerfileId: string;
-  teamId: string;
-  version: number;
-  channel: string;
-}
+import type { BuildContext } from '../types/dockerfile-queue-consumer.types';
 
 @Processor('dockerfile')
 export class DockerfileQueueConsumerService {
@@ -51,6 +45,7 @@ export class DockerfileQueueConsumerService {
       const imageResult = await this.executeBuild(ctx, dockerfile);
       const logS3Key = await this.uploadBuildLogs(ctx);
       const version = await this.updateBuildStatus(ctx, 'SUCCESS', {
+        imageName: imageResult.imageName,
         logS3Key,
       });
       await this.dockerfilesService.updateImageName(
@@ -127,7 +122,7 @@ export class DockerfileQueueConsumerService {
   private async updateBuildStatus(
     ctx: BuildContext,
     status: 'BUILDING' | 'SUCCESS' | 'FAILED',
-    opts?: { logS3Key?: string; error?: string },
+    opts?: { imageName?: string | null; logS3Key?: string; error?: string },
   ): Promise<DockerfileVersionDto> {
     await this.prisma.dockerfileVersion.update({
       where: {
@@ -142,12 +137,16 @@ export class DockerfileQueueConsumerService {
           ? {
               buildStartedAt: new Date(),
               buildCompletedAt: null,
+              imageName: null,
               buildLogS3Key: null,
               buildError: null,
             }
           : {
               buildCompletedAt: new Date(),
             }),
+        ...(opts && 'imageName' in opts
+          ? { imageName: opts.imageName ?? null }
+          : {}),
         ...(opts?.logS3Key && { buildLogS3Key: opts.logS3Key }),
         ...(opts?.error && { buildError: opts.error }),
       },

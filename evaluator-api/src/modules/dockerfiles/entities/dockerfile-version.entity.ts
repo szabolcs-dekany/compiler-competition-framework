@@ -17,6 +17,12 @@ export class DockerfileVersionEntity {
   @ApiProperty({ description: 'SHA-256 checksum' })
   checksum: string;
 
+  @ApiProperty({
+    description: 'Built image name for this Dockerfile version',
+    nullable: true,
+  })
+  imageName?: string | null;
+
   @ApiProperty({ description: 'Upload timestamp' })
   uploadedAt: string;
 
