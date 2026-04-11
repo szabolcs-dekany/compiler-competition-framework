@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { SubmissionsController } from './submissions.controller';
 import { SubmissionsService } from './submissions.service';
+import { SubmissionReaderService } from './submission-reader.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TestCasesService } from '../test-cases/test-cases.service';
 import { QueueModule } from '../queue/queue.module';
@@ -11,6 +12,7 @@ import { SubmissionEventsService } from './submission-events.service';
   imports: [QueueModule],
   controllers: [SubmissionsController],
   providers: [
+    SubmissionReaderService,
     SubmissionsService,
     PrismaService,
     TestCasesService,
@@ -18,6 +20,7 @@ import { SubmissionEventsService } from './submission-events.service';
     SubmissionEventsService,
   ],
   exports: [
+    SubmissionReaderService,
     SubmissionsService,
     SubmissionExecutionService,
     SubmissionEventsService,

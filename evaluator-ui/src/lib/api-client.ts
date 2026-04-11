@@ -71,6 +71,11 @@ export const submissionsApi = {
 
   testRunAttempts: (submissionId: string, testCaseId: string) =>
     fetchJson<TestRunAttemptDto[]>(`${API_BASE}/submissions/${submissionId}/test-runs/${testCaseId}/attempts`),
+
+  rerunEvaluations: (submissionId: string) =>
+    fetchJson<SubmissionDto>(`${API_BASE}/submissions/${submissionId}/rerun-evaluations`, {
+      method: 'POST',
+    }),
   
   getCompileLogs: (id: string) => fetchJson<{ logs: string }>(`${API_BASE}/submissions/${id}/compile-logs`),
   

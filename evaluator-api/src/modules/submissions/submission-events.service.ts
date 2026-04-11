@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import type { CompileLogEvent } from '@evaluator/shared';
 import { RedisLogService } from '../../common/redis/redis-log.service';
-import { SubmissionsService } from './submissions.service';
+import { SubmissionReaderService } from './submission-reader.service';
 
 @Injectable()
 export class SubmissionEventsService {
   constructor(
-    private readonly submissionsService: SubmissionsService,
+    private readonly submissionReaderService: SubmissionReaderService,
     private readonly redisLogService: RedisLogService,
   ) {}
 
@@ -15,7 +15,7 @@ export class SubmissionEventsService {
     type: 'status' | 'complete',
   ): Promise<void> {
     const submission =
-      await this.submissionsService.getSubmissionDto(submissionId);
+      await this.submissionReaderService.getSubmissionDto(submissionId);
 
     await this.redisLogService.publishEvent(submissionId, {
       type,
@@ -25,7 +25,7 @@ export class SubmissionEventsService {
 
   async publishCompilationStatus(compilationId: string): Promise<void> {
     const compilation =
-      await this.submissionsService.getCompilationDto(compilationId);
+      await this.submissionReaderService.getCompilationDto(compilationId);
 
     await this.redisLogService.publishEvent(compilation.submissionId, {
       type: 'compilation-status',
@@ -34,7 +34,7 @@ export class SubmissionEventsService {
   }
 
   async publishTestRunStatus(testRunId: string): Promise<void> {
-    const testRun = await this.submissionsService.getTestRunDto(testRunId);
+    const testRun = await this.submissionReaderService.getTestRunDto(testRunId);
 
     await this.redisLogService.publishEvent(testRun.submissionId, {
       type: 'test-run-status',

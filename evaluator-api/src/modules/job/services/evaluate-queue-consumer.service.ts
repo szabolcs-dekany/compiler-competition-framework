@@ -299,9 +299,13 @@ export class EvaluateQueueConsumerService {
       fs.mkdirSync(path.join(attemptScratchDir, '.home'), { recursive: true });
       fs.mkdirSync(path.join(attemptScratchDir, '.tmp'), { recursive: true });
 
+      this.logger.debug(`Test Case args: ${attempt.stdin}`);
+
+      const testArgs = attempt?.stdin?.split(' ') || [];
+
       const dockerResult = await this.dockerService.runContainer({
         imageName: compilation.submission.dockerImageName as string,
-        command: [`./${binaryName}`, ...testCase.args],
+        command: [`./${binaryName}`, ...testArgs],
         mountPath: context.tempDir,
         containerPath: '/workspace',
         scratchHostPath: attemptScratchDir,

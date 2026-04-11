@@ -9,9 +9,22 @@ export class EvaluateQueueService {
 
   constructor(@InjectQueue('evaluate') private evaluateQueue: bull.Queue) {}
 
-  async dispatchEvaluateJob(evaluateJob: EvaluateJobData): Promise<string> {
+  async dispatchEvaluateJob(
+    evaluateJob: EvaluateJobData,
+    opts?: { jobKeySuffix?: string },
+  ): Promise<string> {
+    const jobId = [
+      'evaluate',
+      evaluateJob.submissionId,
+      evaluateJob.compilationId,
+      opts?.jobKeySuffix,
+    ]
+      .filter(
+        (part): part is string => typeof part === 'string' && part.length > 0,
+      )
+      .join('-');
     const job = await this.evaluateQueue.add('', evaluateJob, {
-      jobId: `evaluate-${evaluateJob.submissionId}-${evaluateJob.compilationId}`,
+      jobId,
     });
 
     this.logger.log(

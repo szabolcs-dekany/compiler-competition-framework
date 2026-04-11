@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CompilationStatus,
   CompileStatus,
   TestRunStatus,
   SubmissionStatus,
 } from '@evaluator/shared';
+import { submissionsApi } from '@/lib/api-client';
 import { submissionQueries, teamQueries } from '@/lib/queries';
 import { useSubmissionCompileStream } from '@/lib/hooks/use-submission-compile-stream';
 import { Badge } from '@/components/ui/badge';
@@ -181,6 +182,7 @@ function CompileLogViewer({
 export function SubmissionDetailPage() {
   const { submissionId } = useParams({ from: '/submissions/$submissionId' });
   const [liveLogs, setLiveLogs] = useState<string[]>([]);
+  const queryClient = useQueryClient();
 
   const { data: submission } = useQuery(submissionQueries.detail(submissionId));
   const { data: compilations } = useQuery(submissionQueries.compilations(submissionId));
@@ -199,6 +201,27 @@ export function SubmissionDetailPage() {
     setLiveLogs([]);
   }, [submissionId]);
 
+  const rerunEvaluationsMutation = useMutation({
+    mutationFn: () => submissionsApi.rerunEvaluations(submissionId),
+    onSuccess: async () => {
+      setLiveLogs([]);
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: submissionQueries.detail(submissionId).queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: submissionQueries.testRuns(submissionId).queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: submissionQueries.compilations(submissionId).queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['submissions', submissionId, 'test-runs'],
+        }),
+      ]);
+    },
+  });
+
   useSubmissionCompileStream({
     submissionId,
     submissionStatus: submission?.status ?? SubmissionStatus.PENDING,
@@ -210,6 +233,11 @@ export function SubmissionDetailPage() {
 
   const storedLogLines = storedLogs?.logs ? storedLogs.logs.split('\n') : [];
   const logs = storedLogLines.length > 0 ? storedLogLines : liveLogs;
+  const canRerunEvaluations =
+    !!submission &&
+    submission.compileStatus !== CompileStatus.PENDING &&
+    submission.compileStatus !== CompileStatus.RUNNING &&
+    (compilations?.length ?? 0) > 0;
 
   return (
     <div className="space-y-6">
@@ -263,13 +291,35 @@ export function SubmissionDetailPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Compile Status</CardTitle>
+            <div className="flex items-center justify-between gap-4">
+              <CardTitle className="text-lg">Compile Status</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => rerunEvaluationsMutation.mutate()}
+                disabled={
+                  !canRerunEvaluations || rerunEvaluationsMutation.isPending
+                }
+              >
+                {rerunEvaluationsMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <PlayCircle className="mr-2 h-4 w-4" />
+                )}
+                Re-run Evaluations
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Status</span>
               {submission && <CompileStatusBadge status={submission.compileStatus} />}
             </div>
+            {rerunEvaluationsMutation.error instanceof Error && (
+              <div className="rounded bg-destructive/10 p-2 text-sm text-destructive">
+                {rerunEvaluationsMutation.error.message}
+              </div>
+            )}
             {submission?.compileStartedAt && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Started</span>

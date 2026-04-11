@@ -24,12 +24,14 @@ import { Observable } from 'rxjs';
 import type {
   CompileLogEvent,
   SubmissionCompilationDto,
+  SubmissionDto,
   TestRunAttemptDto,
   TestRunDto,
 } from '@evaluator/shared';
 import { RedisLogService } from '../../common/redis/redis-log.service';
 import { isCompileLogEvent } from '../../common/redis/stream-event-guards';
 import { SubmissionsService } from './submissions.service';
+import { SubmissionReaderService } from './submission-reader.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
 
@@ -40,6 +42,7 @@ export class SubmissionsController {
 
   constructor(
     private readonly submissionsService: SubmissionsService,
+    private readonly submissionReaderService: SubmissionReaderService,
     private readonly redisLogService: RedisLogService,
   ) {}
 
@@ -115,7 +118,7 @@ export class SubmissionsController {
   findCompilations(
     @Param('id') id: string,
   ): Promise<SubmissionCompilationDto[]> {
-    return this.submissionsService.findCompilations(id);
+    return this.submissionReaderService.findCompilations(id);
   }
 
   @Get(':id/test-runs')
@@ -127,7 +130,7 @@ export class SubmissionsController {
   })
   @ApiResponse({ status: 404, description: 'Submission not found' })
   findTestRuns(@Param('id') id: string): Promise<TestRunDto[]> {
-    return this.submissionsService.findTestRuns(id);
+    return this.submissionReaderService.findTestRuns(id);
   }
 
   @Get(':id/test-runs/:testCaseId/attempts')
@@ -145,7 +148,21 @@ export class SubmissionsController {
     @Param('id') id: string,
     @Param('testCaseId') testCaseId: string,
   ): Promise<TestRunAttemptDto[]> {
-    return this.submissionsService.getTestRunAttempts(id, testCaseId);
+    return this.submissionReaderService.getTestRunAttempts(id, testCaseId);
+  }
+
+  @Post(':id/rerun-evaluations')
+  @ApiOperation({ summary: 'Re-trigger evaluation jobs for a submission' })
+  @ApiParam({ name: 'id', description: 'Submission ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Evaluation rerun queued',
+    type: Submission,
+  })
+  @ApiResponse({ status: 400, description: 'Submission is not ready to rerun' })
+  @ApiResponse({ status: 404, description: 'Submission not found' })
+  rerunEvaluations(@Param('id') id: string): Promise<SubmissionDto> {
+    return this.submissionsService.rerunEvaluations(id);
   }
 
   @Get(':id/compile-logs')
@@ -154,7 +171,7 @@ export class SubmissionsController {
   @ApiResponse({ status: 200, description: 'Compile logs' })
   @ApiResponse({ status: 404, description: 'Logs not found' })
   async getCompileLogs(@Param('id') id: string): Promise<{ logs: string }> {
-    const logs = await this.submissionsService.getCompileLogs(id);
+    const logs = await this.submissionReaderService.getCompileLogs(id);
     return { logs };
   }
 
@@ -164,7 +181,7 @@ export class SubmissionsController {
   async streamCompileLogs(
     @Param('id') id: string,
   ): Promise<Observable<{ data: CompileLogEvent }>> {
-    const submission = await this.submissionsService.getSubmissionDto(id);
+    const submission = await this.submissionReaderService.getSubmissionDto(id);
 
     return new Observable<{ data: CompileLogEvent }>((subscriber) => {
       subscriber.next({
