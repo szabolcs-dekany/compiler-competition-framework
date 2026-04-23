@@ -42,8 +42,7 @@ export function VersionHistoryDialog({
   );
   const downloadMutation = useDownloadSourceFile();
 
-  const handleDownload = (version: number) => {
-    const filename = `${sourceFile.testCaseId}_v${version}${sourceFile.extension}`;
+  const handleDownload = (version: number, filename: string) => {
     downloadMutation.mutate({ id: sourceFile.id, version, filename });
   };
 
@@ -81,6 +80,7 @@ export function VersionHistoryDialog({
                     <Clock className="h-3 w-3" />
                     {formatDate(v.uploadedAt)}
                   </span>
+                  <span>{v.originalName}</span>
                   <span>{formatBytes(v.size)}</span>
                   <span className="font-mono text-xs">
                     {truncateChecksum(v.checksum)}
@@ -90,7 +90,7 @@ export function VersionHistoryDialog({
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => handleDownload(v.version)}
+                onClick={() => handleDownload(v.version, v.originalName)}
                 disabled={downloadMutation.isPending}
               >
                 <Download className="h-4 w-4" />

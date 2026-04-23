@@ -86,9 +86,16 @@ export class EvaluateAttemptService {
       fs.mkdirSync(path.join(attemptScratchDir, '.home'), { recursive: true });
       fs.mkdirSync(path.join(attemptScratchDir, '.tmp'), { recursive: true });
 
-      this.logger.debug(`Test Case args: ${attempt.stdin}`);
+      const rawArgs = testCase.args as string[] | string;
+      const explicitArgs = Array.isArray(rawArgs)
+        ? rawArgs
+        : rawArgs.split(' ').filter(Boolean);
+      const testArgs =
+        explicitArgs.length > 0
+          ? explicitArgs
+          : (attempt.stdin?.split(' ').filter(Boolean) ?? []);
 
-      const testArgs = attempt?.stdin?.split(' ') || [];
+      this.logger.debug(`Test case args: ${testArgs.join(' ')}`);
 
       const dockerResult = await this.dockerService.runContainer({
         imageName: compilation.submission.dockerImageName as string,
@@ -106,6 +113,7 @@ export class EvaluateAttemptService {
         stdin: attempt.stdin,
         timeoutMs: testCase.timeout_ms,
         memoryMb: testCase.max_memory_mb,
+        tmpfsSizeMb: testCase.max_memory_mb,
         readOnlyMount: true,
       });
       const runTimeMs = Date.now() - startTime;

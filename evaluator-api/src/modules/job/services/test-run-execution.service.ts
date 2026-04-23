@@ -182,6 +182,15 @@ export class TestRunExecutionService {
       return;
     }
 
+    const hasPendingCompilations = compilations.some(
+      (compilation) =>
+        compilation.status !== 'SUCCESS' && compilation.status !== 'FAILED',
+    );
+
+    if (hasPendingCompilations) {
+      return;
+    }
+
     const completedCompilations = compilations.filter(
       (compilation) =>
         compilation.status === 'SUCCESS' || compilation.status === 'FAILED',

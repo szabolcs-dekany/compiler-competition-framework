@@ -177,6 +177,12 @@ function assertInputDefinitions(
 }
 
 function assertValidatorSource(source: string, context: string): void {
+  // This only catches obvious validator mistakes. vm.Script with a 50ms timeout
+  // is not a security boundary, and top-level validator code still executes
+  // during validation here. Validators are trusted because they come from
+  // in-repo YAML; untrusted or user-supplied code must use real isolation such
+  // as isolated-vm or a separate worker/process, and heavy initialization can
+  // fail validation before any validate() call runs.
   try {
     const script = new vm.Script(
       `

@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import * as fs from 'fs';
+import { Injectable } from '@nestjs/common';
+import { chmod, mkdir, rm, writeFile } from 'fs/promises';
 import * as path from 'path';
 import { StorageService } from '../../../../common/storage/storage.service';
 import type {
@@ -9,36 +9,39 @@ import type {
 
 @Injectable()
 export class EvaluateWorkspaceService {
-  private readonly logger = new Logger(EvaluateWorkspaceService.name);
-
   constructor(private readonly storageService: StorageService) {}
 
   async prepare(
     context: EvaluationContext,
     compilation: CompilationSnapshot,
   ): Promise<string> {
-    fs.mkdirSync(context.tempDir, { recursive: true });
-    fs.mkdirSync(context.scratchRootDir, { recursive: true });
+    if (!compilation.compiledS3Key) {
+      throw new Error(
+        `No compiled binary available for compilation ${compilation.id}`,
+      );
+    }
+
+    await Promise.all([
+      mkdir(context.tempDir, { recursive: true }),
+      mkdir(context.scratchRootDir, { recursive: true }),
+    ]);
 
     const compiledBuffer = await this.storageService.getFile(
-      compilation.compiledS3Key as string,
+      compilation.compiledS3Key,
     );
     const binaryName = `binary-${compilation.testCaseId}`;
     const binaryPath = path.join(context.tempDir, binaryName);
 
-    fs.writeFileSync(binaryPath, compiledBuffer);
-    fs.chmodSync(binaryPath, 0o755);
+    await writeFile(binaryPath, compiledBuffer);
+    await chmod(binaryPath, 0o755);
 
     return binaryName;
   }
 
-  cleanup(context: EvaluationContext): void {
-    if (fs.existsSync(context.tempDir)) {
-      fs.rmSync(context.tempDir, { recursive: true, force: true });
-    }
-
-    if (fs.existsSync(context.scratchRootDir)) {
-      fs.rmSync(context.scratchRootDir, { recursive: true, force: true });
-    }
+  async cleanup(context: EvaluationContext): Promise<void> {
+    await Promise.all([
+      rm(context.tempDir, { recursive: true, force: true }),
+      rm(context.scratchRootDir, { recursive: true, force: true }),
+    ]);
   }
 }

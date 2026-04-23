@@ -39,7 +39,7 @@ function InfoCard({ label, children }: { label: string; children: React.ReactNod
 }
 
 function GeneratorSection({ tc }: { tc: TestCaseBlueprint }) {
-  if (!tc.hasGenerator || !tc.generatorInfo) return null;
+  if (tc.mode !== 'generator' || !tc.generator_info) return null;
 
   return (
     <Card>
@@ -55,14 +55,14 @@ function GeneratorSection({ tc }: { tc: TestCaseBlueprint }) {
             Randomized Inputs
           </Badge>
           <span className="text-muted-foreground">
-            <strong>{tc.generatorInfo.runs}</strong> run{tc.generatorInfo.runs !== 1 ? 's' : ''}
+            <strong>{tc.generator_info.runs}</strong> run{tc.generator_info.runs !== 1 ? 's' : ''}
           </span>
           <span className="text-muted-foreground">
-            Seed: <strong>{tc.generatorInfo.seed}</strong>
+            Seed: <strong>{tc.generator_info.seed}</strong>
           </span>
         </div>
 
-        {tc.generatorInfo.inputs.length > 0 && (
+        {tc.generator_info.inputs.length > 0 && (
           <Table>
             <TableHeader>
               <TableRow>
@@ -75,7 +75,7 @@ function GeneratorSection({ tc }: { tc: TestCaseBlueprint }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tc.generatorInfo.inputs.map((input) => (
+              {tc.generator_info.inputs.map((input) => (
                 <TableRow key={input.var}>
                   <TableCell className="font-mono">{input.var}</TableCell>
                   <TableCell>
@@ -110,7 +110,7 @@ export function TestCaseDetailPage() {
         <div className="flex-1">
           <h1 className="text-3xl font-bold flex items-center gap-3">
             {tc.id} — {tc.name}
-            {tc.hasGenerator && (
+            {tc.mode === 'generator' && (
               <Badge variant="outline" className="bg-purple-500/10 text-purple-500 border-purple-500/20">
                 Randomized
               </Badge>

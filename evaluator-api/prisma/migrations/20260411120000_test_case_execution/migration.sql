@@ -7,12 +7,36 @@ ALTER TABLE "SourceFileVersion"
 ADD COLUMN "originalName" TEXT,
 ADD COLUMN "extension" TEXT NOT NULL DEFAULT '';
 
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM "SourceFileVersion" AS "sfv"
+    LEFT JOIN "SourceFile" AS "sf" ON "sf"."id" = "sfv"."sourceFileId"
+    WHERE "sf"."id" IS NULL
+  ) THEN
+    RAISE NOTICE 'Found SourceFileVersion rows without a matching SourceFile; applying fallback metadata';
+  END IF;
+END $$;
+
 UPDATE "SourceFileVersion" AS "sfv"
 SET
-  "originalName" = "sf"."originalName",
-  "extension" = "sf"."extension"
-FROM "SourceFile" AS "sf"
-WHERE "sf"."id" = "sfv"."sourceFileId";
+  "originalName" = COALESCE(
+    (
+      SELECT "sf"."originalName"
+      FROM "SourceFile" AS "sf"
+      WHERE "sf"."id" = "sfv"."sourceFileId"
+    ),
+    'source-file-version-' || "sfv"."id"
+  ),
+  "extension" = COALESCE(
+    (
+      SELECT "sf"."extension"
+      FROM "SourceFile" AS "sf"
+      WHERE "sf"."id" = "sfv"."sourceFileId"
+    ),
+    ''
+  );
 
 ALTER TABLE "SourceFileVersion"
 ALTER COLUMN "originalName" SET NOT NULL;
@@ -48,6 +72,37 @@ CREATE TABLE "TestRunAttempt" (
   "completedAt" TIMESTAMP(3),
 
   CONSTRAINT "TestRunAttempt_pkey" PRIMARY KEY ("id")
+);
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM "TestRun"
+    GROUP BY "submissionId", "testCaseId"
+    HAVING COUNT(*) > 1
+  ) THEN
+    RAISE NOTICE 'Found duplicate TestRun rows by submissionId/testCaseId; deleting older duplicates before adding the unique index';
+  END IF;
+END $$;
+
+WITH "ranked_duplicates" AS (
+  SELECT
+    "id",
+    ROW_NUMBER() OVER (
+      PARTITION BY "submissionId", "testCaseId"
+      ORDER BY
+        COALESCE("completedAt", "createdAt") DESC,
+        "createdAt" DESC,
+        "id" DESC
+    ) AS "row_number"
+  FROM "TestRun"
+)
+DELETE FROM "TestRun"
+WHERE "id" IN (
+  SELECT "id"
+  FROM "ranked_duplicates"
+  WHERE "row_number" > 1
 );
 
 CREATE UNIQUE INDEX "TestRun_compilationId_key" ON "TestRun"("compilationId");

@@ -105,26 +105,25 @@ export class TestCaseExecutionService {
       return false;
     }
 
+    const context = vm.createContext({
+      Math,
+      output: actualStdout,
+      inputs: attempt.generatedInputs,
+    });
     const script = new vm.Script(
       `
 ${testCase.generator.validator}
 if (typeof validate !== 'function') {
   throw new Error('Validator must define validate(output, inputs)');
 }
-validate;
+const result = validate(output, inputs);
+if (typeof result !== 'boolean') {
+  throw new Error('Validator must return a boolean');
+}
+result;
       `,
     );
-    const validate = script.runInNewContext({ Math }, { timeout: 50 }) as (
-      output: string,
-      inputs: TestCaseInputs,
-    ) => boolean;
-    const result = validate(actualStdout, attempt.generatedInputs);
-
-    if (typeof result !== 'boolean') {
-      throw new Error('Validator must return a boolean');
-    }
-
-    return result;
+    return script.runInContext(context, { timeout: 50 }) as boolean;
   }
 
   summarizeResults(
@@ -226,7 +225,7 @@ validate;
 
     if (definition.type === 'choice') {
       const choices = definition.choices ?? [];
-      return choices[Math.floor(rng.next() * choices.length)] ?? '';
+      return choices[Math.floor(rng.next() * choices.length)];
     }
 
     const length = definition.length ?? 8;
@@ -234,7 +233,7 @@ validate;
     let value = '';
 
     for (let index = 0; index < length; index += 1) {
-      value += alphabet[Math.floor(rng.next() * alphabet.length)] ?? '';
+      value += alphabet[Math.floor(rng.next() * alphabet.length)];
     }
 
     return value;

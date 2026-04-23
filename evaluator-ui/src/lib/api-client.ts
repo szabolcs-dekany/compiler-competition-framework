@@ -35,6 +35,19 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   return response.json();
 }
 
+async function fetchText(url: string, options?: RequestInit): Promise<string> {
+  const response = await fetch(url, options);
+
+  if (!response.ok) {
+    const error = await response
+      .json()
+      .catch(() => ({ message: 'An error occurred' }));
+    throw new Error(error.message || `HTTP ${response.status}`);
+  }
+
+  return response.text();
+}
+
 export const teamsApi = {
   list: () => fetchJson<TeamDto[]>(`${API_BASE}/teams`),
   
@@ -77,7 +90,8 @@ export const submissionsApi = {
       method: 'POST',
     }),
   
-  getCompileLogs: (id: string) => fetchJson<{ logs: string }>(`${API_BASE}/submissions/${id}/compile-logs`),
+  getCompileLogs: (id: string) =>
+    fetchText(`${API_BASE}/submissions/${id}/compile-logs`),
   
   getCompileLogStreamUrl: (id: string) => `${API_BASE}/submissions/${id}/compile-logs/stream`,
   

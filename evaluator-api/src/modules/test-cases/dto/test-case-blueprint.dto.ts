@@ -71,9 +71,6 @@ export class TestCaseBlueprintDto {
   @ApiProperty({ example: 100, nullable: true })
   performance_threshold_ms: number | null;
 
-  @ApiProperty({ example: true })
-  hasGenerator: boolean;
-
   @ApiProperty({ type: GeneratorInfoDto, nullable: true })
-  generatorInfo: GeneratorInfoDto | null;
+  generator_info: GeneratorInfoDto | null;
 }

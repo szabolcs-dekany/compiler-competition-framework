@@ -6,6 +6,7 @@ import type {
   TestRunDto,
 } from '@evaluator/shared';
 import { CompilationStatus } from '@evaluator/shared';
+import { Readable } from 'stream';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { TestCasesService } from '../test-cases/test-cases.service';
@@ -156,7 +157,7 @@ export class SubmissionReaderService {
     return testRun.attempts.map((attempt) => this.toTestRunAttemptDto(attempt));
   }
 
-  async getCompileLogs(submissionId: string): Promise<string> {
+  async getCompileLogStream(submissionId: string): Promise<Readable> {
     const submission = await this.prisma.submission.findUnique({
       where: { id: submissionId },
     });
@@ -173,8 +174,7 @@ export class SubmissionReaderService {
       );
     }
 
-    const logBuffer = await this.storage.getFile(submission.compileLogS3Key);
-    return logBuffer.toString('utf-8');
+    return this.storage.getFileStream(submission.compileLogS3Key);
   }
 
   async findCompilations(
@@ -408,11 +408,7 @@ export class SubmissionReaderService {
       testRunId: attempt.testRunId,
       attemptIndex: attempt.attemptIndex,
       seed: attempt.seed,
-      generatedInputs:
-        typeof attempt.generatedInputs === 'object' &&
-        attempt.generatedInputs !== null
-          ? (attempt.generatedInputs as Record<string, number | string>)
-          : {},
+      generatedInputs: this.toGeneratedInputsRecord(attempt.generatedInputs),
       stdin: attempt.stdin,
       validationMode:
         attempt.validationMode as TestRunAttemptDto['validationMode'],
@@ -427,5 +423,34 @@ export class SubmissionReaderService {
       createdAt: attempt.createdAt.toISOString(),
       completedAt: attempt.completedAt?.toISOString() ?? null,
     };
+  }
+
+  private toGeneratedInputsRecord(
+    value: unknown,
+  ): Record<string, number | string> {
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      Array.isArray(value)
+    ) {
+      return {};
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return {};
+    }
+
+    const entries = Object.entries(value);
+    if (
+      entries.some(
+        ([, entryValue]) =>
+          typeof entryValue !== 'number' && typeof entryValue !== 'string',
+      )
+    ) {
+      return {};
+    }
+
+    return Object.fromEntries(entries) as Record<string, number | string>;
   }
 }

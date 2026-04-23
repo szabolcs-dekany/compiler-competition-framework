@@ -1,4 +1,8 @@
-import { Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Process, Processor } from '@nestjs/bull';
 import bull from 'bull';
 import * as path from 'path';
@@ -53,14 +57,10 @@ export class EvaluateQueueConsumerService {
       const testCase = this.testCaseLoader.get(compilation.testCaseId);
 
       if (!testCase) {
-        throw new Error(
+        throw new NotFoundException(
           `Test case with id ${compilation.testCaseId} not found`,
         );
       }
-
-      await this.testRunExecutionService.markSubmissionEvaluating(
-        compilation.submissionId,
-      );
 
       if (compilation.status !== 'SUCCESS' || !compilation.compiledS3Key) {
         await this.testRunExecutionService.recordCompilationFailureResult({
@@ -77,6 +77,10 @@ export class EvaluateQueueConsumerService {
         );
         return;
       }
+
+      await this.testRunExecutionService.markSubmissionEvaluating(
+        compilation.submissionId,
+      );
 
       const testRun =
         await this.testRunExecutionService.ensureEvaluationTestRun({
@@ -137,7 +141,7 @@ export class EvaluateQueueConsumerService {
     } catch (error) {
       await this.handleEvaluationFailure(context, error);
     } finally {
-      this.workspaceService.cleanup(context);
+      await this.workspaceService.cleanup(context);
     }
   }
 
@@ -170,11 +174,11 @@ export class EvaluateQueueConsumerService {
     });
 
     if (!compilation) {
-      throw new Error(`Compilation with id ${compilationId} not found`);
+      throw new NotFoundException(`Compilation with id ${compilationId} not found`);
     }
 
     if (compilation.status === 'SUCCESS' && !compilation.s3Key) {
-      throw new Error(
+      throw new ConflictException(
         `No compiled binary available for compilation ${compilationId}`,
       );
     }
@@ -183,7 +187,7 @@ export class EvaluateQueueConsumerService {
       compilation.status === 'SUCCESS' &&
       !compilation.submission.dockerImageName
     ) {
-      throw new Error(
+      throw new ConflictException(
         `No Docker image snapshot available for submission ${compilation.submissionId}`,
       );
     }

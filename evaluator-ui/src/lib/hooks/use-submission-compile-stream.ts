@@ -52,7 +52,7 @@ function replaceCompilation(
   );
 
   if (index === -1) {
-    return compilations;
+    return [...compilations, nextCompilation];
   }
 
   const nextCompilations = [...compilations];

@@ -68,6 +68,13 @@ export class SubmissionsService {
       dockerfileVersion?.buildStatus === 'SUCCESS'
         ? (dockerfileVersion.imageName ?? team.dockerfile?.imageName ?? null)
         : null;
+
+    if (!dockerImageName) {
+      throw new BadRequestException(
+        `No built Docker image is available for team ${createSubmissionDto.teamId}`,
+      );
+    }
+
     const sourceFileVersionIds = team.sourceFiles
       .map((sourceFile) => sourceFile.versions.at(0)?.id ?? null)
       .filter(

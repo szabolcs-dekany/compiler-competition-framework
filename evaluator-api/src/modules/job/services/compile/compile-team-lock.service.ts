@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisLogService } from '../../../../common/redis/redis-log.service';
+import { RetryableJobError } from '../../errors/retryable-job.error';
 import type {
   CompilationContext,
   TeamLock,
@@ -9,12 +10,14 @@ import type {
 
 const DEFAULT_TEAM_LOCK_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_TEAM_LOCK_POLL_MS = 1000;
+const DEFAULT_TEAM_LOCK_MAX_WAIT_MS = 60_000;
 
 @Injectable()
 export class CompileTeamLockService {
   private readonly logger = new Logger(CompileTeamLockService.name);
   private readonly teamLockTtlMs: number;
   private readonly teamLockPollMs: number;
+  private readonly teamLockMaxWaitMs: number;
 
   constructor(
     private readonly redisLogService: RedisLogService,
@@ -27,6 +30,10 @@ export class CompileTeamLockService {
     this.teamLockPollMs = this.configService.get<number>(
       'COMPILE_TEAM_LOCK_POLL_MS',
       DEFAULT_TEAM_LOCK_POLL_MS,
+    );
+    this.teamLockMaxWaitMs = this.configService.get<number>(
+      'COMPILE_TEAM_LOCK_MAX_WAIT_MS',
+      DEFAULT_TEAM_LOCK_MAX_WAIT_MS,
     );
   }
 
@@ -60,7 +67,8 @@ export class CompileTeamLockService {
     context: CompilationContext,
   ): Promise<TeamLock> {
     const key = this.teamLockKey(context.teamId);
-    const value = `${context.jobId}:${Date.now()}`;
+    const startTime = Date.now();
+    const value = `${context.jobId}:${startTime}`;
     let waitingLogged = false;
 
     while (true) {
@@ -82,6 +90,17 @@ export class CompileTeamLockService {
           `Compile job ${context.jobId} waiting for team lock ${context.teamId}`,
         );
         waitingLogged = true;
+      }
+
+      const elapsedMs = Date.now() - startTime;
+      if (elapsedMs >= this.teamLockMaxWaitMs) {
+        const message = [
+          `Timed out after ${elapsedMs}ms waiting for compile team lock`,
+          `for team ${context.teamId}`,
+          `while processing submission ${context.submissionId}`,
+        ].join(' ');
+        this.logger.warn(message);
+        throw new RetryableJobError(message);
       }
 
       await this.sleep(this.teamLockPollMs);
@@ -109,7 +128,7 @@ export class CompileTeamLockService {
         );
 
         if (!extended) {
-          lockLossError = new Error(
+          lockLossError = new RetryableJobError(
             `Lost compile team lock for team ${context.teamId} while processing submission ${context.submissionId}`,
           );
           this.logger.error(lockLossError.message);
@@ -120,7 +139,7 @@ export class CompileTeamLockService {
     })().catch((error: unknown) => {
       const message =
         error instanceof Error ? error.message : 'Unknown lock heartbeat error';
-      lockLossError = new Error(message);
+      lockLossError = new RetryableJobError(message);
       this.logger.error(message);
     });
 

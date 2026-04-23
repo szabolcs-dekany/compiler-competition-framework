@@ -22,6 +22,7 @@ export interface RunContainerParams {
   stdin?: string | null;
   memoryMb?: number;
   cpuCount?: number;
+  tmpfsSizeMb?: number;
   pidsLimit?: number;
   readOnlyMount?: boolean;
   submissionId?: string;

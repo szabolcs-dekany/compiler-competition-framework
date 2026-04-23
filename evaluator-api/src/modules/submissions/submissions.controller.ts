@@ -8,6 +8,7 @@ import {
   Param,
   Post,
   Sse,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -170,9 +171,15 @@ export class SubmissionsController {
   @ApiParam({ name: 'id', description: 'Submission ID' })
   @ApiResponse({ status: 200, description: 'Compile logs' })
   @ApiResponse({ status: 404, description: 'Logs not found' })
-  async getCompileLogs(@Param('id') id: string): Promise<{ logs: string }> {
-    const logs = await this.submissionReaderService.getCompileLogs(id);
-    return { logs };
+  async getCompileLogs(@Param('id') id: string): Promise<StreamableFile> {
+    const logStream = await this.submissionReaderService.getCompileLogStream(
+      id,
+    );
+
+    return new StreamableFile(logStream, {
+      type: 'text/plain; charset=utf-8',
+      disposition: `inline; filename="submission-${id}-compile.log"`,
+    });
   }
 
   @Sse(':id/compile-logs/stream')

@@ -31,6 +31,5 @@ export interface TestCaseBlueprint {
   points: number;
   performance_bonus: boolean;
   performance_threshold_ms: number | null;
-  hasGenerator: boolean;
-  generatorInfo: GeneratorInfo | null;
+  generator_info: GeneratorInfo | null;
 }

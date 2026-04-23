@@ -215,9 +215,6 @@ export function SubmissionDetailPage() {
         queryClient.invalidateQueries({
           queryKey: submissionQueries.compilations(submissionId).queryKey,
         }),
-        queryClient.invalidateQueries({
-          queryKey: ['submissions', submissionId, 'test-runs'],
-        }),
       ]);
     },
   });
@@ -231,7 +228,7 @@ export function SubmissionDetailPage() {
     },
   });
 
-  const storedLogLines = storedLogs?.logs ? storedLogs.logs.split('\n') : [];
+  const storedLogLines = storedLogs ? storedLogs.split('\n') : [];
   const logs = storedLogLines.length > 0 ? storedLogLines : liveLogs;
   const canRerunEvaluations =
     !!submission &&

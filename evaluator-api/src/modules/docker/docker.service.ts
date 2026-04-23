@@ -67,9 +67,11 @@ export class DockerService {
       stdin,
       memoryMb,
       cpuCount = 1,
+      tmpfsSizeMb = memoryMb ?? 10,
       pidsLimit = 100,
       readOnlyMount = false,
     } = params;
+    const tmpfsSizeBytes = Math.max(1, Math.round(tmpfsSizeMb * 1024 * 1024));
 
     this.logger.debug(
       `Running container ${imageName} with command: ${command.join(' ')}`,
@@ -81,9 +83,9 @@ export class DockerService {
       WorkingDir: containerPath,
       AttachStdout: true,
       AttachStderr: true,
-      AttachStdin: stdin !== undefined,
-      OpenStdin: stdin !== undefined,
-      StdinOnce: stdin !== undefined,
+      AttachStdin: stdin != null,
+      OpenStdin: stdin != null,
+      StdinOnce: stdin != null,
       Env: env ?? ['HOME=/tmp'],
       HostConfig: {
         Binds: [
@@ -95,7 +97,7 @@ export class DockerService {
         NetworkMode: 'none',
         ReadonlyRootfs: true,
         PidsLimit: pidsLimit,
-        NanoCpus: Math.max(1, cpuCount) * 1_000_000_000,
+        NanoCpus: Math.round(cpuCount * 1_000_000_000),
         ...(typeof memoryMb === 'number'
           ? {
               Memory: memoryMb * 1024 * 1024,
@@ -104,7 +106,7 @@ export class DockerService {
           : {}),
         SecurityOpt: ['no-new-privileges'],
         Tmpfs: {
-          '/tmp': 'rw,noexec,nosuid,size=10485760',
+          '/tmp': `rw,noexec,nosuid,size=${tmpfsSizeBytes}`,
         },
       },
     });
@@ -117,13 +119,13 @@ export class DockerService {
         stream: true,
         stdout: true,
         stderr: true,
-        stdin: stdin !== undefined,
+        stdin: stdin != null,
       });
 
       await container.start();
 
-      if (stdin !== undefined) {
-        stream.write(stdin ?? '');
+      if (stdin != null) {
+        stream.write(stdin);
         stream.end();
       }
 
@@ -171,6 +173,38 @@ export class DockerService {
       this.docker.modem.demuxStream(stream, stdoutStream, stderrStream);
 
       await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        let stdoutEnded = false;
+        let stderrEnded = false;
+
+        const flushRemainder = (
+          chunks: string[],
+          remainder: string,
+          onLine?: (line: string) => void,
+        ): void => {
+          const trimmed = remainder.trim();
+          if (!trimmed) {
+            return;
+          }
+
+          chunks.push(trimmed);
+          onLine?.(trimmed);
+        };
+        const maybeResolve = (): void => {
+          if (!settled && stdoutEnded && stderrEnded) {
+            settled = true;
+            resolve();
+          }
+        };
+        const rejectOnce = (error: unknown): void => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+          reject(error instanceof Error ? error : new Error(String(error)));
+        };
+
         stdoutStream.on('data', (chunk: Buffer) => {
           stdoutRemainder = flushLines(
             chunk,
@@ -181,6 +215,12 @@ export class DockerService {
             },
           );
         });
+        stdoutStream.on('end', () => {
+          flushRemainder(stdoutChunks, stdoutRemainder, params.onLog);
+          stdoutEnded = true;
+          maybeResolve();
+        });
+        stdoutStream.on('error', rejectOnce);
         stderrStream.on('data', (chunk: Buffer) => {
           stderrRemainder = flushLines(
             chunk,
@@ -191,23 +231,20 @@ export class DockerService {
             },
           );
         });
+        stderrStream.on('end', () => {
+          flushRemainder(stderrChunks, stderrRemainder, params.onLog);
+          stderrEnded = true;
+          maybeResolve();
+        });
+        stderrStream.on('error', rejectOnce);
         stream.on('end', () => {
           stdoutStream.end();
           stderrStream.end();
-          if (stdoutRemainder.trim()) {
-            stdoutChunks.push(stdoutRemainder.trim());
-            params.onLog?.(stdoutRemainder.trim());
-          }
-          if (stderrRemainder.trim()) {
-            stderrChunks.push(stderrRemainder.trim());
-            params.onLog?.(stderrRemainder.trim());
-          }
-          resolve();
         });
         stream.on('error', (err: unknown) => {
-          stdoutStream.end();
-          stderrStream.end();
-          reject(err instanceof Error ? err : new Error(String(err)));
+          stdoutStream.destroy();
+          stderrStream.destroy();
+          rejectOnce(err);
         });
       });
 

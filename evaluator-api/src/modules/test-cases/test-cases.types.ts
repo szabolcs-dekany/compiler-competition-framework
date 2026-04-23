@@ -12,8 +12,7 @@ export interface TestCaseBlueprint {
   points: number;
   performance_bonus: boolean;
   performance_threshold_ms: number | null;
-  hasGenerator: boolean;
-  generatorInfo: {
+  generator_info: {
     runs: number;
     seed: 'deterministic' | 'random';
     inputs: Array<{

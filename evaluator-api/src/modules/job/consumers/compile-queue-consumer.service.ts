@@ -1,4 +1,8 @@
-import { Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Process, Processor } from '@nestjs/bull';
 import bull from 'bull';
 import * as path from 'path';
@@ -10,6 +14,7 @@ import { SubmissionExecutionService } from '../../submissions/submission-executi
 import { CompileTeamLockService } from '../services/compile/compile-team-lock.service';
 import { CompileWorkspaceService } from '../services/compile/compile-workspace.service';
 import { CompileExecutionService } from '../services/compile/compile-execution.service';
+import { RetryableJobError } from '../errors/retryable-job.error';
 import type {
   CompilationContext,
   CompletedCompilation,
@@ -51,6 +56,8 @@ export class CompileQueueConsumerService {
   async processCompileJob(compileJob: bull.Job<CompileJobData>): Promise<void> {
     const context = this.createCompilationContext(compileJob);
     const { lock, heartbeat } = await this.teamLockService.acquire(context);
+    let processingError: unknown = null;
+    let cleanupError: unknown = null;
 
     this.logger.debug(
       `Compile queue job received: ${compileJob.id} for submission ${context.submissionId}`,
@@ -79,11 +86,56 @@ export class CompileQueueConsumerService {
         completedCompilations,
       );
     } catch (error) {
-      await this.handleCompilationFailure(context, error);
+      processingError = error;
+
+      if (!(error instanceof RetryableJobError)) {
+        try {
+          await this.handleCompilationFailure(context, error);
+        } catch (handleError) {
+          this.logCleanupFailure(
+            `Failed to persist compilation failure for submission ${context.submissionId}`,
+            handleError,
+          );
+        }
+      }
     } finally {
-      heartbeat.stop();
-      await this.teamLockService.release(context, lock);
-      this.workspaceService.cleanup(context);
+      try {
+        heartbeat.stop();
+      } catch (error) {
+        cleanupError ??= error;
+        this.logCleanupFailure(
+          `Failed to stop compile heartbeat for submission ${context.submissionId}`,
+          error,
+        );
+      }
+
+      try {
+        await this.teamLockService.release(context, lock);
+      } catch (error) {
+        cleanupError ??= error;
+        this.logCleanupFailure(
+          `Failed to release compile lock for submission ${context.submissionId}`,
+          error,
+        );
+      }
+
+      try {
+        await this.workspaceService.cleanup(context);
+      } catch (error) {
+        cleanupError ??= error;
+        this.logCleanupFailure(
+          `Failed to clean compile workspace for submission ${context.submissionId}`,
+          error,
+        );
+      }
+
+      if (processingError) {
+        throw processingError;
+      }
+
+      if (cleanupError) {
+        throw cleanupError;
+      }
     }
   }
 
@@ -124,7 +176,7 @@ export class CompileQueueConsumerService {
     });
 
     if (!submission) {
-      throw new Error(`Submission with id ${submissionId} not found`);
+      throw new NotFoundException(`Submission with id ${submissionId} not found`);
     }
 
     return {
@@ -148,19 +200,19 @@ export class CompileQueueConsumerService {
 
   private validateSubmissionSnapshot(submission: SubmissionSnapshot): void {
     if (!submission.compilerPath) {
-      throw new Error(
+      throw new BadRequestException(
         `No compiler path available for submission ${submission.id}`,
       );
     }
 
     if (!submission.dockerImageName) {
-      throw new Error(
+      throw new BadRequestException(
         `No Docker image snapshot available for submission ${submission.id}`,
       );
     }
 
     if (submission.compilations.length === 0) {
-      throw new Error(
+      throw new BadRequestException(
         `No source file snapshots available for submission ${submission.id}`,
       );
     }
@@ -190,13 +242,12 @@ export class CompileQueueConsumerService {
       compileLogS3Key: logS3Key,
     });
 
-    //TODO figure out automatic dispatch of evaluation jobs
-    // for (const completedCompilation of completedCompilations) {
-    //   await this.evaluateQueueService.dispatchEvaluateJob({
-    //     submissionId: context.submissionId,
-    //     compilationId: completedCompilation.compilationId,
-    //   });
-    // }
+    for (const completedCompilation of completedCompilations) {
+      await this.evaluateQueueService.dispatchEvaluateJob({
+        submissionId: context.submissionId,
+        compilationId: completedCompilation.compilationId,
+      });
+    }
   }
 
   private async handleCompilationFailure(
@@ -227,5 +278,11 @@ export class CompileQueueConsumerService {
         errorMessage,
       });
     }
+  }
+
+  private logCleanupFailure(message: string, error: unknown): void {
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+    this.logger.error(`${message}: ${errorMessage}`);
   }
 }

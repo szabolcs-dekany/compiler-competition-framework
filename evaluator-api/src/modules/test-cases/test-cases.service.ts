@@ -22,8 +22,7 @@ export class TestCasesService {
       points: tc.points,
       performance_bonus: tc.performance_bonus,
       performance_threshold_ms: tc.performance_threshold_ms,
-      hasGenerator: tc.mode === 'generator',
-      generatorInfo:
+      generator_info:
         tc.mode === 'generator'
           ? {
               runs: tc.generator.runs,

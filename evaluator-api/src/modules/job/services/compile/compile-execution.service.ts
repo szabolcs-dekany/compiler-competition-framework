@@ -161,42 +161,78 @@ export class CompileExecutionService {
     memoryMb: number,
   ): Promise<CompilationResult> {
     const startTime = Date.now();
+    const pendingLogWrites: Promise<void>[] = [];
+    let dockerResult: Awaited<
+      ReturnType<DockerService['runContainer']>
+    > | null = null;
+    let executionError: unknown = null;
+    let appendLogError: unknown = null;
 
-    const dockerResult = await this.dockerService.runContainer({
-      imageName: submission.dockerImageName as string,
-      command: [
-        `./${submission.originalName}`,
-        'build',
-        '-o',
-        outputFileName,
-        compilation.workspaceName,
-      ],
-      mountPath: context.tempDir,
-      containerPath: '/workspace',
-      scratchHostPath: context.scratchDir,
-      scratchContainerPath: '/scratch',
-      env: [
-        'HOME=/scratch/.home',
-        'TMPDIR=/scratch/.tmp',
-        'TMP=/scratch/.tmp',
-        'TEMP=/scratch/.tmp',
-        'XDG_CACHE_HOME=/scratch/.cache',
-        'GOCACHE=/scratch/.cache/go-build',
-        'GOMODCACHE=/scratch/.cache/go-mod',
-        'GOTMPDIR=/scratch/.tmp',
-      ],
-      timeoutMs,
-      memoryMb,
-      onLog: (message) => {
-        void this.appendLog(context, message);
-      },
-    });
+    try {
+      dockerResult = await this.dockerService.runContainer({
+        imageName: submission.dockerImageName as string,
+        command: [
+          `./${submission.originalName}`,
+          'build',
+          '-o',
+          outputFileName,
+          compilation.workspaceName,
+        ],
+        mountPath: context.tempDir,
+        containerPath: '/workspace',
+        scratchHostPath: context.scratchDir,
+        scratchContainerPath: '/scratch',
+        env: [
+          'HOME=/scratch/.home',
+          'TMPDIR=/scratch/.tmp',
+          'TMP=/scratch/.tmp',
+          'TEMP=/scratch/.tmp',
+          'XDG_CACHE_HOME=/scratch/.cache',
+          'GOCACHE=/scratch/.cache/go-build',
+          'GOMODCACHE=/scratch/.cache/go-mod',
+          'GOTMPDIR=/scratch/.tmp',
+        ],
+        timeoutMs,
+        memoryMb,
+        tmpfsSizeMb: memoryMb,
+        onLog: (message) => {
+          const appendPromise = this.appendLog(context, message).catch(
+            (error: unknown) => {
+              const errorMessage =
+                error instanceof Error ? error.message : 'Unknown error';
+              this.logger.error(
+                `Failed to append compile log for submission ${context.submissionId}: ${errorMessage}`,
+              );
+              throw error;
+            },
+          );
+
+          pendingLogWrites.push(appendPromise);
+        },
+      });
+    } catch (error) {
+      executionError = error;
+    }
+
+    try {
+      await Promise.all(pendingLogWrites);
+    } catch (error) {
+      appendLogError = error;
+    }
+
+    if (executionError) {
+      throw executionError;
+    }
+
+    if (appendLogError) {
+      throw appendLogError;
+    }
 
     return {
       compileTimeMs: Date.now() - startTime,
-      stdout: dockerResult.stdout,
-      stderr: dockerResult.stderr,
-      exitCode: dockerResult.exitCode,
+      stdout: dockerResult?.stdout ?? '',
+      stderr: dockerResult?.stderr ?? '',
+      exitCode: dockerResult?.exitCode ?? -1,
     };
   }
 
