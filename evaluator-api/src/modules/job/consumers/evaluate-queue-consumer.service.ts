@@ -107,9 +107,19 @@ export class EvaluateQueueConsumerService {
         testRun.id,
         testCase,
       );
+      this.logger.debug(
+        `Evaluate queue job ${job.id} prepared ${attempts.length} attempt(s) for testRun ${testRun.id}`,
+      );
+
+      this.logger.debug(
+        `Evaluate queue job ${job.id} preparing workspace for compilation ${context.compilationId}`,
+      );
       const binaryName = await this.workspaceService.prepare(
         context,
         compilation,
+      );
+      this.logger.debug(
+        `Evaluate queue job ${job.id} prepared workspace for compilation ${context.compilationId} with binary ${binaryName}`,
       );
 
       for (const attempt of attempts) {
@@ -123,11 +133,17 @@ export class EvaluateQueueConsumerService {
         );
       }
 
+      this.logger.debug(
+        `Evaluate queue job ${job.id} summarizing results for testRun ${testRun.id}`,
+      );
       const summary = await this.attemptService.summarizeResults(
         testCase,
         testRun.id,
       );
 
+      this.logger.debug(
+        `Evaluate queue job ${job.id} persisting summary for testRun ${testRun.id}`,
+      );
       await this.testRunExecutionService.updateTestRun(testRun.id, {
         status: summary.status,
         runSuccess: summary.runSuccess,
@@ -143,8 +159,14 @@ export class EvaluateQueueConsumerService {
         completedAt: new Date(),
       });
 
+      this.logger.debug(
+        `Evaluate queue job ${job.id} finalizing submission ${compilation.submissionId}`,
+      );
       await this.testRunExecutionService.finalizeSubmissionIfComplete(
         compilation.submissionId,
+      );
+      this.logger.debug(
+        `Evaluate queue job ${job.id} completed for compilation ${context.compilationId}`,
       );
     } catch (error) {
       if (error instanceof RetryableJobError) {

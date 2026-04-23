@@ -122,7 +122,122 @@ export class DockerService {
         stdout: true,
         stderr: true,
         stdin: stdin != null,
+        hijack: stdin != null,
       });
+
+      const stdoutStream = new PassThrough();
+      const stderrStream = new PassThrough();
+
+      const stdoutChunks: string[] = [];
+      const stderrChunks: string[] = [];
+      let stdoutRemainder = '';
+      let stderrRemainder = '';
+
+      const flushLines = (
+        chunk: Buffer,
+        chunks: string[],
+        remainder: string,
+        onLine: (line: string) => void,
+      ): string => {
+        const text = remainder + chunk.toString('utf-8');
+        const lines = text.split('\n');
+        const newRemainder = lines.pop() ?? '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed) {
+            chunks.push(trimmed);
+            onLine(trimmed);
+          }
+        }
+        return newRemainder;
+      };
+
+      const outputPromise = new Promise<void>((resolve, reject) => {
+        let settled = false;
+        let stdoutEnded = false;
+        let stderrEnded = false;
+        let attachClosed = false;
+
+        const flushRemainder = (
+          chunks: string[],
+          remainder: string,
+          onLine?: (line: string) => void,
+        ): void => {
+          const trimmed = remainder.trim();
+          if (!trimmed) {
+            return;
+          }
+
+          chunks.push(trimmed);
+          onLine?.(trimmed);
+        };
+        const maybeResolve = (): void => {
+          if (!settled && stdoutEnded && stderrEnded) {
+            settled = true;
+            resolve();
+          }
+        };
+        const rejectOnce = (error: unknown): void => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+          reject(error instanceof Error ? error : new Error(String(error)));
+        };
+        const closeAttachStreams = (): void => {
+          if (attachClosed) {
+            return;
+          }
+
+          attachClosed = true;
+          stdoutStream.end();
+          stderrStream.end();
+        };
+
+        stdoutStream.on('data', (chunk: Buffer) => {
+          stdoutRemainder = flushLines(
+            chunk,
+            stdoutChunks,
+            stdoutRemainder,
+            (line) => {
+              params.onLog?.(line);
+            },
+          );
+        });
+        stdoutStream.on('end', () => {
+          flushRemainder(stdoutChunks, stdoutRemainder, params.onLog);
+          stdoutEnded = true;
+          maybeResolve();
+        });
+        stdoutStream.on('error', rejectOnce);
+        stderrStream.on('data', (chunk: Buffer) => {
+          stderrRemainder = flushLines(
+            chunk,
+            stderrChunks,
+            stderrRemainder,
+            (line) => {
+              params.onLog?.(line);
+            },
+          );
+        });
+        stderrStream.on('end', () => {
+          flushRemainder(stderrChunks, stderrRemainder, params.onLog);
+          stderrEnded = true;
+          maybeResolve();
+        });
+        stderrStream.on('error', rejectOnce);
+        stream.on('end', closeAttachStreams);
+        stream.on('close', closeAttachStreams);
+        stream.on('error', (err: unknown) => {
+          stdoutStream.destroy();
+          stderrStream.destroy();
+          rejectOnce(err);
+        });
+      });
+      void outputPromise.catch(() => undefined);
+
+      this.docker.modem.demuxStream(stream, stdoutStream, stderrStream);
 
       await container.start();
 
@@ -170,114 +285,9 @@ export class DockerService {
         }, timeoutMs);
       }
 
-      const stdoutStream = new PassThrough();
-      const stderrStream = new PassThrough();
-
-      const stdoutChunks: string[] = [];
-      const stderrChunks: string[] = [];
-      let stdoutRemainder = '';
-      let stderrRemainder = '';
-
-      const flushLines = (
-        chunk: Buffer,
-        chunks: string[],
-        remainder: string,
-        onLine: (line: string) => void,
-      ): string => {
-        const text = remainder + chunk.toString('utf-8');
-        const lines = text.split('\n');
-        const newRemainder = lines.pop() ?? '';
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed) {
-            chunks.push(trimmed);
-            onLine(trimmed);
-          }
-        }
-        return newRemainder;
-      };
-
-      this.docker.modem.demuxStream(stream, stdoutStream, stderrStream);
-
-      const outputPromise = new Promise<void>((resolve, reject) => {
-        let settled = false;
-        let stdoutEnded = false;
-        let stderrEnded = false;
-
-        const flushRemainder = (
-          chunks: string[],
-          remainder: string,
-          onLine?: (line: string) => void,
-        ): void => {
-          const trimmed = remainder.trim();
-          if (!trimmed) {
-            return;
-          }
-
-          chunks.push(trimmed);
-          onLine?.(trimmed);
-        };
-        const maybeResolve = (): void => {
-          if (!settled && stdoutEnded && stderrEnded) {
-            settled = true;
-            resolve();
-          }
-        };
-        const rejectOnce = (error: unknown): void => {
-          if (settled) {
-            return;
-          }
-
-          settled = true;
-          reject(error instanceof Error ? error : new Error(String(error)));
-        };
-
-        stdoutStream.on('data', (chunk: Buffer) => {
-          stdoutRemainder = flushLines(
-            chunk,
-            stdoutChunks,
-            stdoutRemainder,
-            (line) => {
-              params.onLog?.(line);
-            },
-          );
-        });
-        stdoutStream.on('end', () => {
-          flushRemainder(stdoutChunks, stdoutRemainder, params.onLog);
-          stdoutEnded = true;
-          maybeResolve();
-        });
-        stdoutStream.on('error', rejectOnce);
-        stderrStream.on('data', (chunk: Buffer) => {
-          stderrRemainder = flushLines(
-            chunk,
-            stderrChunks,
-            stderrRemainder,
-            (line) => {
-              params.onLog?.(line);
-            },
-          );
-        });
-        stderrStream.on('end', () => {
-          flushRemainder(stderrChunks, stderrRemainder, params.onLog);
-          stderrEnded = true;
-          maybeResolve();
-        });
-        stderrStream.on('error', rejectOnce);
-        stream.on('end', () => {
-          stdoutStream.end();
-          stderrStream.end();
-        });
-        stream.on('error', (err: unknown) => {
-          stdoutStream.destroy();
-          stderrStream.destroy();
-          rejectOnce(err);
-        });
-      });
-
       const [result] = await Promise.all([waitPromise, outputPromise]);
       if (timeoutKillPromise) {
-        await timeoutKillPromise;
+        await Promise.resolve(timeoutKillPromise);
       }
       const exitCode = timedOut ? -1 : (result.StatusCode ?? -1);
 
