@@ -15,12 +15,15 @@ export interface GeneratorInfo {
   inputs: GeneratorInputInfo[];
 }
 
+export type TestCaseMode = 'fixed' | 'generator';
+
 export interface TestCaseBlueprint {
   id: string;
   category: string;
   name: string;
   description: string;
   difficulty: Difficulty;
+  mode: TestCaseMode;
   args: string[];
   stdin: string | null;
   timeout_ms: number;
@@ -28,6 +31,5 @@ export interface TestCaseBlueprint {
   points: number;
   performance_bonus: boolean;
   performance_threshold_ms: number | null;
-  hasGenerator: boolean;
-  generatorInfo: GeneratorInfo | null;
+  generator_info: GeneratorInfo | null;
 }

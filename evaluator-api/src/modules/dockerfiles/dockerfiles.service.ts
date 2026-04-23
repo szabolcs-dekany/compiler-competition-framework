@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -18,6 +19,7 @@ const DOCKERFILE_FILENAME = 'Dockerfile';
 
 @Injectable()
 export class DockerfilesService {
+  private readonly logger = new Logger(DockerfilesService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
@@ -39,16 +41,6 @@ export class DockerfilesService {
       version: df.version,
       uploadedAt: df.uploadedAt.toISOString(),
     }));
-  }
-
-  async findAllByTeamId(teamId: string): Promise<DockerfileDto[]> {
-    const dockerfiles = await this.prisma.dockerfile.findMany({
-      where: { teamId: teamId },
-      include: { team: true },
-      orderBy: { team: { name: 'asc' } },
-    });
-
-    return dockerfiles.map((df) => this.toDto(df));
   }
 
   async create(
@@ -357,6 +349,7 @@ export class DockerfilesService {
     version: number;
     size: number;
     checksum: string;
+    imageName: string | null;
     uploadedAt: Date;
     buildStatus: DockerfileVersionDto['buildStatus'];
     buildLogS3Key: string | null;
@@ -370,6 +363,7 @@ export class DockerfilesService {
       version: versionRecord.version,
       size: versionRecord.size,
       checksum: versionRecord.checksum,
+      imageName: versionRecord.imageName,
       uploadedAt: versionRecord.uploadedAt.toISOString(),
       buildStatus: versionRecord.buildStatus,
       buildLogS3Key: versionRecord.buildLogS3Key,

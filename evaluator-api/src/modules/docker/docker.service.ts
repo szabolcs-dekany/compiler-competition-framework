@@ -4,36 +4,12 @@ import Docker from 'dockerode';
 import { ConfigService } from '@nestjs/config';
 import * as tar from 'tar-stream';
 import { PassThrough, Readable } from 'stream';
-
-export interface BuildImageParams {
-  dockerfileBuffer: Buffer;
-  teamId: string;
-  version: number;
-  dockerfileId: string;
-  onLog?: (message: string) => void;
-}
-
-export interface BuildImageResult {
-  imageName: string;
-  buildLog: string[];
-}
-
-export interface RunContainerParams {
-  imageName: string;
-  command: string[];
-  mountPath: string;
-  containerPath: string;
-  submissionId?: string;
-  version?: number;
-  timeoutMs?: number;
-  onLog?: (message: string) => void;
-}
-
-export interface RunContainerResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
+import type {
+  BuildImageParams,
+  BuildImageResult,
+  RunContainerParams,
+  RunContainerResult,
+} from './docker.types';
 
 @Injectable()
 export class DockerService {
@@ -79,7 +55,23 @@ export class DockerService {
   }
 
   async runContainer(params: RunContainerParams): Promise<RunContainerResult> {
-    const { imageName, command, mountPath, containerPath, timeoutMs } = params;
+    const {
+      imageName,
+      command,
+      mountPath,
+      containerPath,
+      scratchHostPath,
+      scratchContainerPath = '/scratch',
+      env,
+      timeoutMs,
+      stdin,
+      memoryMb,
+      cpuCount = 1,
+      tmpfsSizeMb = memoryMb ?? 10,
+      pidsLimit = 100,
+      readOnlyMount = false,
+    } = params;
+    const tmpfsSizeBytes = Math.max(1, Math.round(tmpfsSizeMb * 1024 * 1024));
 
     this.logger.debug(
       `Running container ${imageName} with command: ${command.join(' ')}`,
@@ -89,35 +81,48 @@ export class DockerService {
       Image: imageName,
       Cmd: command,
       WorkingDir: containerPath,
+      AttachStdout: true,
+      AttachStderr: true,
+      AttachStdin: stdin != null,
+      OpenStdin: stdin != null,
+      StdinOnce: stdin != null,
+      Env: env ?? ['HOME=/tmp'],
       HostConfig: {
-        Binds: [`${mountPath}:${containerPath}`],
+        Binds: [
+          `${mountPath}:${containerPath}${readOnlyMount ? ':ro' : ''}`,
+          ...(scratchHostPath
+            ? [`${scratchHostPath}:${scratchContainerPath}`]
+            : []),
+        ],
+        NetworkMode: 'none',
+        ReadonlyRootfs: true,
+        PidsLimit: pidsLimit,
+        NanoCpus: Math.round(cpuCount * 1_000_000_000),
+        ...(typeof memoryMb === 'number'
+          ? {
+              Memory: memoryMb * 1024 * 1024,
+              MemorySwap: memoryMb * 1024 * 1024,
+            }
+          : {}),
+        SecurityOpt: ['no-new-privileges'],
+        Tmpfs: {
+          '/tmp': `rw,noexec,nosuid,size=${tmpfsSizeBytes}`,
+        },
       },
     });
 
     let timeoutId: NodeJS.Timeout | undefined;
+    let waitSettled = false;
     let timedOut = false;
+    let timeoutKillPromise: Promise<void> | null = null;
 
     try {
-      await container.start();
-
-      if (timeoutMs) {
-        timeoutId = setTimeout(() => {
-          timedOut = true;
-          this.logger.warn(
-            `Container ${imageName} timed out after ${timeoutMs}ms, killing...`,
-          );
-          container.kill().catch((err) => {
-            const errorMessage =
-              err instanceof Error ? err.message : 'Unknown error';
-            this.logger.error(`Failed to kill container: ${errorMessage}`);
-          });
-        }, timeoutMs);
-      }
-
-      const stream = await container.logs({
+      const stream = await container.attach({
+        stream: true,
         stdout: true,
         stderr: true,
-        follow: true,
+        stdin: stdin != null,
+        hijack: stdin != null,
       });
 
       const stdoutStream = new PassThrough();
@@ -147,9 +152,49 @@ export class DockerService {
         return newRemainder;
       };
 
-      this.docker.modem.demuxStream(stream, stdoutStream, stderrStream);
+      const outputPromise = new Promise<void>((resolve, reject) => {
+        let settled = false;
+        let stdoutEnded = false;
+        let stderrEnded = false;
+        let attachClosed = false;
 
-      await new Promise<void>((resolve, reject) => {
+        const flushRemainder = (
+          chunks: string[],
+          remainder: string,
+          onLine?: (line: string) => void,
+        ): void => {
+          const trimmed = remainder.trim();
+          if (!trimmed) {
+            return;
+          }
+
+          chunks.push(trimmed);
+          onLine?.(trimmed);
+        };
+        const maybeResolve = (): void => {
+          if (!settled && stdoutEnded && stderrEnded) {
+            settled = true;
+            resolve();
+          }
+        };
+        const rejectOnce = (error: unknown): void => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+          reject(error instanceof Error ? error : new Error(String(error)));
+        };
+        const closeAttachStreams = (): void => {
+          if (attachClosed) {
+            return;
+          }
+
+          attachClosed = true;
+          stdoutStream.end();
+          stderrStream.end();
+        };
+
         stdoutStream.on('data', (chunk: Buffer) => {
           stdoutRemainder = flushLines(
             chunk,
@@ -160,6 +205,12 @@ export class DockerService {
             },
           );
         });
+        stdoutStream.on('end', () => {
+          flushRemainder(stdoutChunks, stdoutRemainder, params.onLog);
+          stdoutEnded = true;
+          maybeResolve();
+        });
+        stdoutStream.on('error', rejectOnce);
         stderrStream.on('data', (chunk: Buffer) => {
           stderrRemainder = flushLines(
             chunk,
@@ -170,27 +221,74 @@ export class DockerService {
             },
           );
         });
-        stream.on('end', () => {
-          stdoutStream.end();
-          stderrStream.end();
-          if (stdoutRemainder.trim()) {
-            stdoutChunks.push(stdoutRemainder.trim());
-            params.onLog?.(stdoutRemainder.trim());
-          }
-          if (stderrRemainder.trim()) {
-            stderrChunks.push(stderrRemainder.trim());
-            params.onLog?.(stderrRemainder.trim());
-          }
-          resolve();
+        stderrStream.on('end', () => {
+          flushRemainder(stderrChunks, stderrRemainder, params.onLog);
+          stderrEnded = true;
+          maybeResolve();
         });
+        stderrStream.on('error', rejectOnce);
+        stream.on('end', closeAttachStreams);
+        stream.on('close', closeAttachStreams);
         stream.on('error', (err: unknown) => {
-          stdoutStream.end();
-          stderrStream.end();
-          reject(err instanceof Error ? err : new Error(String(err)));
+          stdoutStream.destroy();
+          stderrStream.destroy();
+          rejectOnce(err);
         });
       });
+      void outputPromise.catch(() => undefined);
 
-      const result = (await container.wait()) as { StatusCode?: number };
+      this.docker.modem.demuxStream(stream, stdoutStream, stderrStream);
+
+      await container.start();
+
+      const waitPromise = container.wait().then((result) => {
+        waitSettled = true;
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = undefined;
+        }
+        return result as { StatusCode?: number };
+      });
+
+      if (stdin != null) {
+        stream.write(stdin);
+        stream.end();
+      }
+
+      if (timeoutMs) {
+        timeoutId = setTimeout(() => {
+          if (waitSettled || timeoutKillPromise) {
+            return;
+          }
+
+          timeoutKillPromise = container.kill().then(
+            () => {
+              timedOut = true;
+              this.logger.warn(
+                `Container ${imageName} timed out after ${timeoutMs}ms, killing...`,
+              );
+            },
+            (err: unknown) => {
+              if (this.isContainerAlreadyStoppedError(err)) {
+                return;
+              }
+
+              timedOut = true;
+              this.logger.warn(
+                `Container ${imageName} timed out after ${timeoutMs}ms, killing...`,
+              );
+              const errorMessage =
+                err instanceof Error ? err.message : 'Unknown error';
+              this.logger.error(`Failed to kill container: ${errorMessage}`);
+            },
+          );
+        }, timeoutMs);
+      }
+
+      const [result] = await Promise.all([waitPromise, outputPromise]);
+      if (timeoutKillPromise) {
+        await Promise.resolve(timeoutKillPromise);
+      }
       const exitCode = timedOut ? -1 : (result.StatusCode ?? -1);
 
       const stdout = stdoutChunks.join('\n');
@@ -214,6 +312,17 @@ export class DockerService {
         this.logger.warn(`Failed to remove container: ${message}`);
       });
     }
+  }
+
+  private isContainerAlreadyStoppedError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    return (
+      error.message.includes('can only kill running containers') ||
+      error.message.includes('is in state exited')
+    );
   }
 
   private async createTarFromDockerfile(

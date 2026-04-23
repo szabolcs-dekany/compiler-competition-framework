@@ -27,6 +27,7 @@ model Dockerfile {
   uploadedAt    DateTime            @default(now())
   imageName     String?
   versions      DockerfileVersion[]
+  submissions   Submission[]
 
   @@index([teamId])
 }
@@ -39,6 +40,7 @@ model DockerfileVersion {
   s3Key            String
   size             Int
   checksum         String
+  imageName        String?
   uploadedAt       DateTime    @default(now())
   buildStatus      BuildStatus @default(PENDING)
   buildLogS3Key    String?
@@ -80,6 +82,8 @@ model SourceFileVersion {
   sourceFileId             String
   sourceFile               SourceFile  @relation(fields: [sourceFileId], references: [id], onDelete: Cascade)
   version                  Int
+  originalName             String
+  extension                String
   s3Key                    String
   size                     Int
   checksum                 String
@@ -102,6 +106,7 @@ model Compilation {
   completedAt         DateTime?
   errorMessage        String?
   createdAt           DateTime          @default(now())
+  testRun             TestRun?
 
   @@unique([sourceFileVersionId, submissionId])
   @@index([sourceFileVersionId])
@@ -112,6 +117,10 @@ model Submission {
   id                 String           @id @default(cuid())
   teamId             String
   team               Team             @relation(fields: [teamId], references: [id])
+  dockerfileId       String?
+  dockerfile         Dockerfile?      @relation(fields: [dockerfileId], references: [id])
+  dockerfileVersion  Int?
+  dockerImageName    String?
   version            Int              @default(1)
   originalName       String
   extension          String
@@ -128,12 +137,15 @@ model Submission {
   compileError       String?
 
   @@unique([teamId, version])
+  @@index([dockerfileId])
 }
 
 model TestRun {
   id               String          @id @default(cuid())
   submissionId     String
   submission       Submission      @relation(fields: [submissionId], references: [id])
+  compilationId    String?         @unique
+  compilation      Compilation?    @relation(fields: [compilationId], references: [id], onDelete: SetNull)
   testCaseId       String
   status           TestRunStatus   @default(PENDING)
   compileSuccess   Boolean?
@@ -150,9 +162,35 @@ model TestRun {
   errorMessage     String?
   createdAt        DateTime        @default(now())
   completedAt      DateTime?
+  attempts         TestRunAttempt[]
 
   @@index([submissionId])
   @@index([testCaseId])
+  @@unique([submissionId, testCaseId])
+}
+
+model TestRunAttempt {
+  id               String                       @id @default(cuid())
+  testRunId        String
+  testRun          TestRun                      @relation(fields: [testRunId], references: [id], onDelete: Cascade)
+  attemptIndex     Int
+  seed             String
+  generatedInputs  Json
+  stdin            String?
+  validationMode   TestRunAttemptValidationMode
+  expectedStdout   String?
+  expectedExitCode Int
+  actualStdout     String?
+  actualStderr     String?
+  actualExitCode   Int?
+  runTimeMs        Int?
+  passed           Boolean?
+  errorMessage     String?
+  createdAt        DateTime                     @default(now())
+  completedAt      DateTime?
+
+  @@unique([testRunId, attemptIndex])
+  @@index([testRunId])
 }
 
 enum SubmissionStatus {
@@ -186,4 +224,9 @@ enum TestRunStatus {
   FAILED
   TIMEOUT
   ERROR
+}
+
+enum TestRunAttemptValidationMode {
+  EXPECTED_STDOUT
+  VALIDATOR
 }

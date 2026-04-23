@@ -84,6 +84,8 @@ const submissionDetailRoute = createRoute({
   component: SubmissionDetailPage,
   loader: ({ context, params }) => {
     context.queryClient.ensureQueryData(submissionQueries.detail(params.submissionId));
+    context.queryClient.ensureQueryData(submissionQueries.compilations(params.submissionId));
+    context.queryClient.ensureQueryData(submissionQueries.testRuns(params.submissionId));
   },
 });
 

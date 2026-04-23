@@ -33,6 +33,8 @@ export interface SourceFileVersionDto {
   id: string;
   sourceFileId: string;
   version: number;
+  originalName: string;
+  extension: string;
   size: number;
   checksum: string;
   uploadedAt: string;

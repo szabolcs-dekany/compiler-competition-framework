@@ -54,6 +54,8 @@ export class SourceFilesService {
         data: {
           sourceFileId: existing.id,
           version,
+          originalName: file.originalname,
+          extension,
           s3Key,
           size: file.size,
           checksum,
@@ -93,6 +95,8 @@ export class SourceFilesService {
       data: {
         sourceFileId: sourceFile.id,
         version,
+        originalName: file.originalname,
+        extension,
         s3Key,
         size: file.size,
         checksum,
@@ -174,6 +178,8 @@ export class SourceFilesService {
       id: v.id,
       sourceFileId: v.sourceFileId,
       version: v.version,
+      originalName: v.originalName,
+      extension: v.extension,
       size: v.size,
       checksum: v.checksum,
       uploadedAt: v.uploadedAt.toISOString(),
@@ -225,7 +231,7 @@ export class SourceFilesService {
     }
 
     const buffer = await this.storage.getFile(versionRecord.s3Key);
-    const fileName = `${sourceFile.testCaseId}_v${version}${sourceFile.extension}`;
+    const fileName = versionRecord.originalName;
 
     return { buffer, fileName };
   }
@@ -250,6 +256,8 @@ export class SourceFilesService {
       data: {
         sourceFileId: existing.id,
         version: newVersion,
+        originalName: file.originalname,
+        extension,
         s3Key,
         size: file.size,
         checksum,

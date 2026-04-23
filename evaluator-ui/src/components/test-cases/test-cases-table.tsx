@@ -61,7 +61,7 @@ export function TestCasesTable({ testCases }: TestCasesTableProps) {
                 <div>
                   <div className="font-medium flex items-center gap-2">
                     {testCase.name}
-                    {testCase.hasGenerator && (
+                    {testCase.mode === 'generator' && (
                       <Badge variant="outline" className="bg-purple-500/10 text-purple-500 border-purple-500/20 text-xs">
                         Randomized
                       </Badge>

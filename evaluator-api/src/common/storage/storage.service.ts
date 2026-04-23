@@ -9,6 +9,7 @@ import {
   Logger,
   InternalServerErrorException,
 } from '@nestjs/common';
+import { Readable } from 'stream';
 import { S3Service } from '../s3/s3.service';
 
 @Injectable()
@@ -64,6 +65,29 @@ export class StorageService {
       return Buffer.concat(chunks);
     } catch (error) {
       this.logger.error(`Failed to get file '${key}'`, error);
+      throw new InternalServerErrorException(`Failed to retrieve file: ${key}`);
+    }
+  }
+
+  async getFileStream(key: string): Promise<Readable> {
+    try {
+      const response = await this.client.send(
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+        }),
+      );
+
+      const body = response.Body;
+      if (!body) {
+        throw new Error('Empty response body');
+      }
+
+      return body instanceof Readable
+        ? body
+        : Readable.from(body as AsyncIterable<Uint8Array>);
+    } catch (error) {
+      this.logger.error(`Failed to get file stream '${key}'`, error);
       throw new InternalServerErrorException(`Failed to retrieve file: ${key}`);
     }
   }

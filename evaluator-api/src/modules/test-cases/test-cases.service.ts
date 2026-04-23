@@ -1,36 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import {
-  TestCaseLoaderService,
-  TestCase,
-} from '../../common/test-case-loader/test-case-loader.service';
-
-interface TestCaseBlueprint {
-  id: string;
-  category: string;
-  name: string;
-  description: string;
-  difficulty: 1 | 2 | 3;
-  args: string[];
-  stdin: string | null;
-  timeout_ms: number;
-  max_memory_mb: number;
-  points: number;
-  performance_bonus: boolean;
-  performance_threshold_ms: number | null;
-  hasGenerator: boolean;
-  generatorInfo: {
-    runs: number;
-    seed: 'deterministic' | 'random';
-    inputs: Array<{
-      var: string;
-      type: 'int' | 'float' | 'string' | 'choice';
-      min?: number;
-      max?: number;
-      choices?: string[];
-      length?: number;
-    }>;
-  } | null;
-}
+import { TestCaseLoaderService } from '../../common/test-case-loader/test-case-loader.service';
+import type { TestCase } from '../../common/test-case-loader/test-case-loader.types';
+import type { TestCaseBlueprint } from './test-cases.types';
 
 @Injectable()
 export class TestCasesService {
@@ -43,21 +14,22 @@ export class TestCasesService {
       name: tc.name,
       description: tc.description,
       difficulty: tc.difficulty,
+      mode: tc.mode,
       args: tc.args,
-      stdin: tc.stdin,
+      stdin: tc.mode === 'fixed' ? tc.stdin : null,
       timeout_ms: tc.timeout_ms,
       max_memory_mb: tc.max_memory_mb,
       points: tc.points,
       performance_bonus: tc.performance_bonus,
       performance_threshold_ms: tc.performance_threshold_ms,
-      hasGenerator: !!tc.generator,
-      generatorInfo: tc.generator
-        ? {
-            runs: tc.generator.runs,
-            seed: tc.generator.seed,
-            inputs: tc.generator.inputs,
-          }
-        : null,
+      generator_info:
+        tc.mode === 'generator'
+          ? {
+              runs: tc.generator.runs,
+              seed: tc.generator.seed,
+              inputs: tc.generator.inputs,
+            }
+          : null,
     };
   }
 

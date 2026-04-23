@@ -1,5 +1,6 @@
-import type { SubmissionCompilationDto } from "./compilation.js";
-import { SubmissionStatus, CompileStatus } from "./enums.js";
+import type { SubmissionCompilationDto } from './compilation.js';
+import type { TestRunDto } from './test-run.js';
+import { SubmissionStatus, CompileStatus } from './enums.js';
 
 export interface SubmissionDto {
   id: string;
@@ -24,22 +25,27 @@ export interface CreateSubmissionDto {
 }
 
 export interface CompileLogLineEvent {
-  type: "log";
+  type: 'log';
   message: string;
 }
 
 export interface CompileStatusEvent {
-  type: "status";
+  type: 'status';
   submission: SubmissionDto;
 }
 
 export interface CompilationStatusEvent {
-  type: "compilation-status";
+  type: 'compilation-status';
   compilation: SubmissionCompilationDto;
 }
 
+export interface TestRunStatusEvent {
+  type: 'test-run-status';
+  testRun: TestRunDto;
+}
+
 export interface CompileCompleteEvent {
-  type: "complete";
+  type: 'complete';
   submission: SubmissionDto;
 }
 
@@ -47,4 +53,5 @@ export type CompileLogEvent =
   | CompileLogLineEvent
   | CompileStatusEvent
   | CompilationStatusEvent
+  | TestRunStatusEvent
   | CompileCompleteEvent;

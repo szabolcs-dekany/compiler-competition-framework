@@ -1,33 +1,38 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
-  Post,
-  Param,
-  Body,
-  UseInterceptors,
-  UploadedFile,
-  NotFoundException,
-  BadRequestException,
-  Sse,
   Logger,
+  NotFoundException,
+  Param,
+  Post,
+  Sse,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiConsumes,
   ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
 import type {
-  SubmissionCompilationDto,
   CompileLogEvent,
+  SubmissionCompilationDto,
+  SubmissionDto,
+  TestRunAttemptDto,
+  TestRunDto,
 } from '@evaluator/shared';
 import { RedisLogService } from '../../common/redis/redis-log.service';
 import { isCompileLogEvent } from '../../common/redis/stream-event-guards';
 import { SubmissionsService } from './submissions.service';
+import { SubmissionReaderService } from './submission-reader.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { Submission } from './entities/submission.entity';
 
@@ -38,6 +43,7 @@ export class SubmissionsController {
 
   constructor(
     private readonly submissionsService: SubmissionsService,
+    private readonly submissionReaderService: SubmissionReaderService,
     private readonly redisLogService: RedisLogService,
   ) {}
 
@@ -113,7 +119,51 @@ export class SubmissionsController {
   findCompilations(
     @Param('id') id: string,
   ): Promise<SubmissionCompilationDto[]> {
-    return this.submissionsService.findCompilations(id);
+    return this.submissionReaderService.findCompilations(id);
+  }
+
+  @Get(':id/test-runs')
+  @ApiOperation({ summary: 'Get evaluation summaries for a submission' })
+  @ApiParam({ name: 'id', description: 'Submission ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of evaluation summaries',
+  })
+  @ApiResponse({ status: 404, description: 'Submission not found' })
+  findTestRuns(@Param('id') id: string): Promise<TestRunDto[]> {
+    return this.submissionReaderService.findTestRuns(id);
+  }
+
+  @Get(':id/test-runs/:testCaseId/attempts')
+  @ApiOperation({
+    summary: 'Get generated attempts for a submission test case',
+  })
+  @ApiParam({ name: 'id', description: 'Submission ID' })
+  @ApiParam({ name: 'testCaseId', description: 'Test case ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of attempt details',
+  })
+  @ApiResponse({ status: 404, description: 'Test run not found' })
+  findTestRunAttempts(
+    @Param('id') id: string,
+    @Param('testCaseId') testCaseId: string,
+  ): Promise<TestRunAttemptDto[]> {
+    return this.submissionReaderService.getTestRunAttempts(id, testCaseId);
+  }
+
+  @Post(':id/rerun-evaluations')
+  @ApiOperation({ summary: 'Re-trigger evaluation jobs for a submission' })
+  @ApiParam({ name: 'id', description: 'Submission ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Evaluation rerun queued',
+    type: Submission,
+  })
+  @ApiResponse({ status: 400, description: 'Submission is not ready to rerun' })
+  @ApiResponse({ status: 404, description: 'Submission not found' })
+  rerunEvaluations(@Param('id') id: string): Promise<SubmissionDto> {
+    return this.submissionsService.rerunEvaluations(id);
   }
 
   @Get(':id/compile-logs')
@@ -121,9 +171,14 @@ export class SubmissionsController {
   @ApiParam({ name: 'id', description: 'Submission ID' })
   @ApiResponse({ status: 200, description: 'Compile logs' })
   @ApiResponse({ status: 404, description: 'Logs not found' })
-  async getCompileLogs(@Param('id') id: string): Promise<{ logs: string }> {
-    const logs = await this.submissionsService.getCompileLogs(id);
-    return { logs };
+  async getCompileLogs(@Param('id') id: string): Promise<StreamableFile> {
+    const logStream =
+      await this.submissionReaderService.getCompileLogStream(id);
+
+    return new StreamableFile(logStream, {
+      type: 'text/plain; charset=utf-8',
+      disposition: `inline; filename="submission-${id}-compile.log"`,
+    });
   }
 
   @Sse(':id/compile-logs/stream')
@@ -132,7 +187,7 @@ export class SubmissionsController {
   async streamCompileLogs(
     @Param('id') id: string,
   ): Promise<Observable<{ data: CompileLogEvent }>> {
-    const submission = await this.submissionsService.getSubmissionDto(id);
+    const submission = await this.submissionReaderService.getSubmissionDto(id);
 
     return new Observable<{ data: CompileLogEvent }>((subscriber) => {
       subscriber.next({

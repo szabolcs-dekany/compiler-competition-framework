@@ -1,4 +1,20 @@
-import type { TeamDto, CreateTeamDto, TestCaseBlueprint, SubmissionDto, CreateSubmissionDto, SubmissionCompilationDto, SourceFileDto, SourceFileListDto, UploadSourceFileDto, SourceFileVersionDto, DockerfileDto, DockerfileListDto, DockerfileVersionDto } from '@evaluator/shared';
+import type {
+  TeamDto,
+  CreateTeamDto,
+  TestCaseBlueprint,
+  SubmissionDto,
+  CreateSubmissionDto,
+  SubmissionCompilationDto,
+  SourceFileDto,
+  SourceFileListDto,
+  UploadSourceFileDto,
+  SourceFileVersionDto,
+  DockerfileDto,
+  DockerfileListDto,
+  DockerfileVersionDto,
+  TestRunDto,
+  TestRunAttemptDto,
+} from '@evaluator/shared';
 
 const API_BASE = '/api';
 
@@ -17,6 +33,19 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   }
 
   return response.json();
+}
+
+async function fetchText(url: string, options?: RequestInit): Promise<string> {
+  const response = await fetch(url, options);
+
+  if (!response.ok) {
+    const error = await response
+      .json()
+      .catch(() => ({ message: 'An error occurred' }));
+    throw new Error(error.message || `HTTP ${response.status}`);
+  }
+
+  return response.text();
 }
 
 export const teamsApi = {
@@ -50,8 +79,19 @@ export const submissionsApi = {
   listByTeam: (teamId: string) => fetchJson<SubmissionDto[]>(`${API_BASE}/submissions/team/${teamId}`),
   
   compilations: (submissionId: string) => fetchJson<SubmissionCompilationDto[]>(`${API_BASE}/submissions/${submissionId}/compilations`),
+
+  testRuns: (submissionId: string) => fetchJson<TestRunDto[]>(`${API_BASE}/submissions/${submissionId}/test-runs`),
+
+  testRunAttempts: (submissionId: string, testCaseId: string) =>
+    fetchJson<TestRunAttemptDto[]>(`${API_BASE}/submissions/${submissionId}/test-runs/${testCaseId}/attempts`),
+
+  rerunEvaluations: (submissionId: string) =>
+    fetchJson<SubmissionDto>(`${API_BASE}/submissions/${submissionId}/rerun-evaluations`, {
+      method: 'POST',
+    }),
   
-  getCompileLogs: (id: string) => fetchJson<{ logs: string }>(`${API_BASE}/submissions/${id}/compile-logs`),
+  getCompileLogs: (id: string) =>
+    fetchText(`${API_BASE}/submissions/${id}/compile-logs`),
   
   getCompileLogStreamUrl: (id: string) => `${API_BASE}/submissions/${id}/compile-logs/stream`,
   
