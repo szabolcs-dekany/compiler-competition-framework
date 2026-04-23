@@ -15,6 +15,8 @@ import type {
   CompilationContext,
   CompletedCompilation,
   SubmissionSnapshot,
+  TeamLock,
+  TeamLockHeartbeat,
 } from '../types/compile-queue-consumer.types';
 
 const DEFAULT_COMPILE_QUEUE_CONCURRENCY = 4;
@@ -27,6 +29,10 @@ function readPositiveIntEnv(name: string, fallback: number): number {
 
   const parsed = Number.parseInt(rawValue, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function ensureError(error: unknown, fallbackMessage: string): Error {
+  return error instanceof Error ? error : new Error(fallbackMessage);
 }
 
 const COMPILE_QUEUE_CONCURRENCY = readPositiveIntEnv(
@@ -51,15 +57,25 @@ export class CompileQueueConsumerService {
   @Process({ concurrency: COMPILE_QUEUE_CONCURRENCY })
   async processCompileJob(compileJob: bull.Job<CompileJobData>): Promise<void> {
     const context = this.createCompilationContext(compileJob);
-    const { lock, heartbeat } = await this.teamLockService.acquire(context);
-    let processingError: unknown = null;
-    let cleanupError: unknown = null;
+    const attemptNumber = compileJob.attemptsMade + 1;
+    const totalAttempts = compileJob.opts.attempts ?? 1;
+    let lock: TeamLock | null = null;
+    let heartbeat: TeamLockHeartbeat | null = null;
+    let rethrowError: Error | null = null;
+
+    this.logger.log(
+      `Compile queue job ${compileJob.id} attempt ${attemptNumber}/${totalAttempts} for submission ${context.submissionId}`,
+    );
 
     this.logger.debug(
       `Compile queue job received: ${compileJob.id} for submission ${context.submissionId}`,
     );
 
     try {
+      const acquiredLock = await this.teamLockService.acquire(context);
+      lock = acquiredLock.lock;
+      heartbeat = acquiredLock.heartbeat;
+
       heartbeat.throwIfLockLost();
       const submission = await this.loadSubmissionSnapshot(
         context.submissionId,
@@ -82,23 +98,29 @@ export class CompileQueueConsumerService {
         completedCompilations,
       );
     } catch (error) {
-      processingError = error;
-
-      if (!(error instanceof RetryableJobError)) {
+      if (error instanceof RetryableJobError) {
+        rethrowError = error;
+        this.logger.warn(
+          `Compile queue job ${compileJob.id} attempt ${attemptNumber}/${totalAttempts} hit retryable failure for submission ${context.submissionId}: ${error.message}`,
+        );
+      } else {
         try {
           await this.handleCompilationFailure(context, error);
         } catch (handleError) {
+          rethrowError = ensureError(
+            handleError,
+            `Failed to persist compilation failure for submission ${context.submissionId}`,
+          );
           this.logCleanupFailure(
             `Failed to persist compilation failure for submission ${context.submissionId}`,
-            handleError,
+            rethrowError,
           );
         }
       }
     } finally {
       try {
-        heartbeat.stop();
+        heartbeat?.stop();
       } catch (error) {
-        cleanupError ??= error;
         this.logCleanupFailure(
           `Failed to stop compile heartbeat for submission ${context.submissionId}`,
           error,
@@ -106,9 +128,10 @@ export class CompileQueueConsumerService {
       }
 
       try {
-        await this.teamLockService.release(context, lock);
+        if (lock) {
+          await this.teamLockService.release(context, lock);
+        }
       } catch (error) {
-        cleanupError ??= error;
         this.logCleanupFailure(
           `Failed to release compile lock for submission ${context.submissionId}`,
           error,
@@ -118,20 +141,15 @@ export class CompileQueueConsumerService {
       try {
         await this.workspaceService.cleanup(context);
       } catch (error) {
-        cleanupError ??= error;
         this.logCleanupFailure(
           `Failed to clean compile workspace for submission ${context.submissionId}`,
           error,
         );
       }
+    }
 
-      if (processingError) {
-        throw processingError;
-      }
-
-      if (cleanupError) {
-        throw cleanupError;
-      }
+    if (rethrowError) {
+      throw rethrowError;
     }
   }
 

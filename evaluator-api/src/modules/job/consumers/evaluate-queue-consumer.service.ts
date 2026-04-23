@@ -5,6 +5,7 @@ import * as path from 'path';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { TestCaseLoaderService } from '../../../common/test-case-loader/test-case-loader.service';
 import { EvaluateJobData } from '../dto/jobs.dto';
+import { RetryableJobError } from '../errors/retryable-job.error';
 import { EvaluateAttemptService } from '../services/evaluate/evaluate-attempt.service';
 import { EvaluateWorkspaceService } from '../services/evaluate/evaluate-workspace.service';
 import { TestRunExecutionService } from '../services/test-run-execution.service';
@@ -23,6 +24,10 @@ function readPositiveIntEnv(name: string, fallback: number): number {
 
   const parsed = Number.parseInt(rawValue, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function ensureError(error: unknown, fallbackMessage: string): Error {
+  return error instanceof Error ? error : new Error(fallbackMessage);
 }
 
 const EVALUATE_QUEUE_CONCURRENCY = readPositiveIntEnv(
@@ -45,6 +50,13 @@ export class EvaluateQueueConsumerService {
   @Process({ concurrency: EVALUATE_QUEUE_CONCURRENCY })
   async processEvaluateJob(job: bull.Job<EvaluateJobData>): Promise<void> {
     const context = this.createContext(job);
+    const attemptNumber = job.attemptsMade + 1;
+    const totalAttempts = job.opts.attempts ?? 1;
+    let rethrowError: Error | null = null;
+
+    this.logger.log(
+      `Evaluate queue job ${job.id} attempt ${attemptNumber}/${totalAttempts} for submission ${context.submissionId} and compilation ${context.compilationId}`,
+    );
 
     try {
       const compilation = await this.loadCompilationSnapshot(
@@ -135,9 +147,36 @@ export class EvaluateQueueConsumerService {
         compilation.submissionId,
       );
     } catch (error) {
-      await this.handleEvaluationFailure(context, error);
+      if (error instanceof RetryableJobError) {
+        rethrowError = error;
+        this.logger.warn(
+          `Evaluate queue job ${job.id} attempt ${attemptNumber}/${totalAttempts} hit retryable failure for compilation ${context.compilationId}: ${error.message}`,
+        );
+      } else {
+        try {
+          await this.handleEvaluationFailure(context, error);
+        } catch (handleError) {
+          rethrowError = ensureError(
+            handleError,
+            `Failed to persist evaluation failure for compilation ${context.compilationId}`,
+          );
+          this.logger.error(
+            `Failed to persist evaluation failure for compilation ${context.compilationId}: ${rethrowError.message}`,
+          );
+        }
+      }
     } finally {
-      await this.workspaceService.cleanup(context);
+      try {
+        await this.workspaceService.cleanup(context);
+      } catch (error) {
+        this.logger.error(
+          `Failed to clean evaluate workspace for compilation ${context.compilationId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      }
+    }
+
+    if (rethrowError) {
+      throw rethrowError;
     }
   }
 
