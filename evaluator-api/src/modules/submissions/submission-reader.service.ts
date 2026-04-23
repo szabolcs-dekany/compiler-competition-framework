@@ -428,11 +428,7 @@ export class SubmissionReaderService {
   private toGeneratedInputsRecord(
     value: unknown,
   ): Record<string, number | string> {
-    if (
-      typeof value !== 'object' ||
-      value === null ||
-      Array.isArray(value)
-    ) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       return {};
     }
 

@@ -112,7 +112,9 @@ export class DockerService {
     });
 
     let timeoutId: NodeJS.Timeout | undefined;
+    let waitSettled = false;
     let timedOut = false;
+    let timeoutKillPromise: Promise<void> | null = null;
 
     try {
       const stream = await container.attach({
@@ -124,6 +126,15 @@ export class DockerService {
 
       await container.start();
 
+      const waitPromise = container.wait().then((result) => {
+        waitSettled = true;
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = undefined;
+        }
+        return result as { StatusCode?: number };
+      });
+
       if (stdin != null) {
         stream.write(stdin);
         stream.end();
@@ -131,15 +142,31 @@ export class DockerService {
 
       if (timeoutMs) {
         timeoutId = setTimeout(() => {
-          timedOut = true;
-          this.logger.warn(
-            `Container ${imageName} timed out after ${timeoutMs}ms, killing...`,
+          if (waitSettled || timeoutKillPromise) {
+            return;
+          }
+
+          timeoutKillPromise = container.kill().then(
+            () => {
+              timedOut = true;
+              this.logger.warn(
+                `Container ${imageName} timed out after ${timeoutMs}ms, killing...`,
+              );
+            },
+            (err: unknown) => {
+              if (this.isContainerAlreadyStoppedError(err)) {
+                return;
+              }
+
+              timedOut = true;
+              this.logger.warn(
+                `Container ${imageName} timed out after ${timeoutMs}ms, killing...`,
+              );
+              const errorMessage =
+                err instanceof Error ? err.message : 'Unknown error';
+              this.logger.error(`Failed to kill container: ${errorMessage}`);
+            },
           );
-          container.kill().catch((err) => {
-            const errorMessage =
-              err instanceof Error ? err.message : 'Unknown error';
-            this.logger.error(`Failed to kill container: ${errorMessage}`);
-          });
         }, timeoutMs);
       }
 
@@ -172,7 +199,7 @@ export class DockerService {
 
       this.docker.modem.demuxStream(stream, stdoutStream, stderrStream);
 
-      await new Promise<void>((resolve, reject) => {
+      const outputPromise = new Promise<void>((resolve, reject) => {
         let settled = false;
         let stdoutEnded = false;
         let stderrEnded = false;
@@ -248,7 +275,10 @@ export class DockerService {
         });
       });
 
-      const result = (await container.wait()) as { StatusCode?: number };
+      const [result] = await Promise.all([waitPromise, outputPromise]);
+      if (timeoutKillPromise) {
+        await timeoutKillPromise;
+      }
       const exitCode = timedOut ? -1 : (result.StatusCode ?? -1);
 
       const stdout = stdoutChunks.join('\n');
@@ -272,6 +302,17 @@ export class DockerService {
         this.logger.warn(`Failed to remove container: ${message}`);
       });
     }
+  }
+
+  private isContainerAlreadyStoppedError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    return (
+      error.message.includes('can only kill running containers') ||
+      error.message.includes('is in state exited')
+    );
   }
 
   private async createTarFromDockerfile(

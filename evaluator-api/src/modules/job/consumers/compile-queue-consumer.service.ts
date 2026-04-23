@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { Process, Processor } from '@nestjs/bull';
 import bull from 'bull';
 import * as path from 'path';
@@ -176,7 +172,9 @@ export class CompileQueueConsumerService {
     });
 
     if (!submission) {
-      throw new NotFoundException(`Submission with id ${submissionId} not found`);
+      throw new NotFoundException(
+        `Submission with id ${submissionId} not found`,
+      );
     }
 
     return {

@@ -172,9 +172,8 @@ export class SubmissionsController {
   @ApiResponse({ status: 200, description: 'Compile logs' })
   @ApiResponse({ status: 404, description: 'Logs not found' })
   async getCompileLogs(@Param('id') id: string): Promise<StreamableFile> {
-    const logStream = await this.submissionReaderService.getCompileLogStream(
-      id,
-    );
+    const logStream =
+      await this.submissionReaderService.getCompileLogStream(id);
 
     return new StreamableFile(logStream, {
       type: 'text/plain; charset=utf-8',

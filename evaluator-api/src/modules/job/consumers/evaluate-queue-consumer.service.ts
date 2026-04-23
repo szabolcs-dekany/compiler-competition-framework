@@ -1,8 +1,4 @@
-import {
-  ConflictException,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { Process, Processor } from '@nestjs/bull';
 import bull from 'bull';
 import * as path from 'path';
@@ -174,7 +170,9 @@ export class EvaluateQueueConsumerService {
     });
 
     if (!compilation) {
-      throw new NotFoundException(`Compilation with id ${compilationId} not found`);
+      throw new NotFoundException(
+        `Compilation with id ${compilationId} not found`,
+      );
     }
 
     if (compilation.status === 'SUCCESS' && !compilation.s3Key) {
