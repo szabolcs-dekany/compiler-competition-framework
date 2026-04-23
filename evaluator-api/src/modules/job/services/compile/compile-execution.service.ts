@@ -32,7 +32,7 @@ export class CompileExecutionService {
   ): Promise<CompletedCompilation[]> {
     const compileTimeoutMs = this.configService.get<number>(
       'DOCKER_COMPILE_TIMEOUT_MS',
-      120000,
+      240_000,
     );
     const compileMemoryMb = this.configService.get<number>(
       'DOCKER_COMPILE_MEMORY_MB',
