@@ -5,9 +5,9 @@ import * as path from 'path';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { TestCaseLoaderService } from '../../../common/test-case-loader/test-case-loader.service';
 import { EvaluateJobData } from '../dto/jobs.dto';
-import { EvaluateAttemptService } from './evaluate/evaluate-attempt.service';
-import { EvaluateWorkspaceService } from './evaluate/evaluate-workspace.service';
-import { TestRunExecutionService } from './test-run-execution.service';
+import { EvaluateAttemptService } from '../services/evaluate/evaluate-attempt.service';
+import { EvaluateWorkspaceService } from '../services/evaluate/evaluate-workspace.service';
+import { TestRunExecutionService } from '../services/test-run-execution.service';
 import type {
   CompilationSnapshot,
   EvaluationContext,

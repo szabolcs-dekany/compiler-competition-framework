@@ -7,9 +7,9 @@ import { RedisLogService } from '../../../common/redis/redis-log.service';
 import { CompileJobData } from '../dto/jobs.dto';
 import { EvaluateQueueService } from '../../queue/evaluate-queue.service';
 import { SubmissionExecutionService } from '../../submissions/submission-execution.service';
-import { CompileTeamLockService } from './compile/compile-team-lock.service';
-import { CompileWorkspaceService } from './compile/compile-workspace.service';
-import { CompileExecutionService } from './compile/compile-execution.service';
+import { CompileTeamLockService } from '../services/compile/compile-team-lock.service';
+import { CompileWorkspaceService } from '../services/compile/compile-workspace.service';
+import { CompileExecutionService } from '../services/compile/compile-execution.service';
 import type {
   CompilationContext,
   CompletedCompilation,
