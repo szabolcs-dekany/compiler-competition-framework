@@ -258,12 +258,12 @@ export class CompileQueueConsumerService {
       compileLogS3Key: logS3Key,
     });
 
-    for (const completedCompilation of completedCompilations) {
-      await this.evaluateQueueService.dispatchEvaluateJob({
-        submissionId: context.submissionId,
-        compilationId: completedCompilation.compilationId,
-      });
-    }
+    // for (const completedCompilation of completedCompilations) {
+    //   await this.evaluateQueueService.dispatchEvaluateJob({
+    //     submissionId: context.submissionId,
+    //     compilationId: completedCompilation.compilationId,
+    //   });
+    // }
   }
 
   private async handleCompilationFailure(
