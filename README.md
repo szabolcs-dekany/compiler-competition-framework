@@ -51,10 +51,19 @@ A competitive programming contest framework where teams submit custom compilers 
 ### Prerequisites
 
 - Node.js 20+
-- Docker & Docker Compose
 - npm 10+
+- Docker Engine with Docker Compose
+- A working Docker socket at `/var/run/docker.sock` (or update `DOCKER_SOCKET_PATH` in `evaluator-api/.env` for Podman)
 
-### 1. Start Infrastructure
+### 1. Install Workspace Dependencies
+
+From the repository root:
+
+```bash
+npm install
+```
+
+### 2. Start Infrastructure
 
 ```bash
 docker-compose up -d
@@ -66,37 +75,58 @@ This starts:
 - Garage (S3) on port 9000
 - Garage WebUI on port 3909
 
-### 2. Setup Backend
+### 3. Configure the Backend
 
 ```bash
-cd evaluator-api
-npm install
-cp .env.example .env
-npx prisma generate
-npx prisma migrate dev
-npm run start:dev
+cp evaluator-api/.env.example evaluator-api/.env
+```
+
+The default environment values already match the local Docker Compose services, including the Garage development credentials. The backend creates the `evaluator-artifacts` bucket on startup if it does not exist.
+
+### 4. Build Shared Types
+
+The API and UI both import `@evaluator/shared`, so build it before starting either app:
+
+```bash
+npm run build --workspace shared
+```
+
+If you plan to edit shared types during development, run the watch mode in a separate terminal instead:
+
+```bash
+npm run dev --workspace shared
+```
+
+### 5. Start the Backend
+
+Run database setup once, then start the API:
+
+```bash
+npx prisma generate --schema evaluator-api/prisma/schema.prisma
+npx prisma migrate dev --schema evaluator-api/prisma/schema.prisma
+npm run start:dev --workspace evaluator-api
 ```
 
 API runs on `http://localhost:3000`
 Swagger docs at `http://localhost:3000/docs`
 
-### 3. Setup Frontend
+### 6. Start the Frontend
+
+Open another terminal from the repository root:
 
 ```bash
-cd evaluator-ui
-npm install
-npm run dev
+npm run dev --workspace evaluator-ui
 ```
 
 Frontend runs on `http://localhost:5173`
+The Vite dev server proxies `/api` requests to the backend at `http://localhost:3000`
 
-### 4. Build Shared Types
+### Suggested Terminal Layout
 
-```bash
-cd shared
-npm install
-npm run build
-```
+Use 2-3 terminals from the repository root:
+- `npm run build --workspace shared` once before startup, or `npm run dev --workspace shared` if editing shared code
+- `npm run start:dev --workspace evaluator-api`
+- `npm run dev --workspace evaluator-ui`
 
 ## Services
 
@@ -126,31 +156,29 @@ Full API documentation available at `http://localhost:3000/docs`
 ### Package Scripts
 
 ```bash
-# Backend (from evaluator-api/)
-npm run start:dev          # Dev server with hot reload
-npm run build              # Production build
-npm run test               # Unit tests
-npm run test:e2e           # E2E tests
-npm run lint               # ESLint
+# Backend
+npm run start:dev --workspace evaluator-api
+npm run build --workspace evaluator-api
+npm run test --workspace evaluator-api
+npm run test:e2e --workspace evaluator-api
+npm run lint --workspace evaluator-api
 
-# Frontend (from evaluator-ui/)
-npm run dev                # Dev server
-npm run build              # Production build
-npm run lint               # ESLint
+# Frontend
+npm run dev --workspace evaluator-ui
+npm run build --workspace evaluator-ui
+npm run lint --workspace evaluator-ui
 
-# Shared (from shared/)
-npm run build              # Build TypeScript types
-npm run dev                # Watch mode
+# Shared
+npm run build --workspace shared
+npm run dev --workspace shared
 ```
 
 ### Database Management
 
 ```bash
-cd evaluator-api
-
-npx prisma studio          # Open database GUI
-npx prisma migrate dev     # Create and apply migration
-npx prisma generate        # Generate Prisma client
+npx prisma studio --schema evaluator-api/prisma/schema.prisma
+npx prisma migrate dev --schema evaluator-api/prisma/schema.prisma
+npx prisma generate --schema evaluator-api/prisma/schema.prisma
 ```
 
 ## Project Workflow

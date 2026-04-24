@@ -13,13 +13,16 @@ Backend service for the Programming Language Evaluation Framework - a competitiv
 ## Prerequisites
 
 - Node.js 20+
-- PostgreSQL 16
-- Redis 7
-- S3-compatible storage (Garage, MinIO, or AWS S3)
+- npm 10+
+- Docker Engine with Docker Compose
+- Repository dependencies installed from the monorepo root
+- Shared package built before starting the API
 
 ## Getting Started
 
 ### 1. Install Dependencies
+
+From the repository root:
 
 ```bash
 npm install
@@ -28,42 +31,69 @@ npm install
 ### 2. Configure Environment
 
 ```bash
-cp .env.example .env
+cp evaluator-api/.env.example evaluator-api/.env
 ```
 
-Edit `.env` with your configuration:
+The default values match the local Docker Compose services defined in the repository root. Edit `evaluator-api/.env` only if you need non-default ports, credentials, or a different Docker socket.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:postgres@localhost:5432/evaluator` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:postgres@localhost:5432/evaluator?schema=public` |
 | `REDIS_HOST` | Redis hostname | `localhost` |
 | `REDIS_PORT` | Redis port | `6379` |
 | `S3_ENDPOINT` | S3 endpoint URL | `http://localhost:9000` |
-| `S3_ACCESS_KEY` | S3 access key | - |
-| `S3_SECRET_KEY` | S3 secret key | - |
+| `S3_ACCESS_KEY` | S3 access key | `GK00000000deadbeefcafe0001` |
+| `S3_SECRET_KEY` | S3 secret key | `a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456` |
 | `S3_BUCKET` | S3 bucket name | `evaluator-artifacts` |
 | `S3_REGION` | S3 region | `garage` |
 | `TEST_CASES_DIR` | Test cases directory | `test-cases` |
+| `DOCKER_SOCKET_PATH` | Docker socket path | `/var/run/docker.sock` |
 
-### 3. Setup Database
+### 3. Start Local Infrastructure
+
+From the repository root:
 
 ```bash
-npx prisma generate
-npx prisma migrate dev
+docker-compose up -d
 ```
 
-### 4. Start the Server
+This provides PostgreSQL, Redis, and Garage for local development.
+
+### 4. Build Shared Types
+
+The API imports `@evaluator/shared`, so build it before starting the server:
+
+```bash
+npm run build --workspace shared
+```
+
+Use watch mode instead if you are actively editing shared types:
+
+```bash
+npm run dev --workspace shared
+```
+
+### 5. Setup Database
+
+```bash
+npx prisma generate --schema evaluator-api/prisma/schema.prisma
+npx prisma migrate dev --schema evaluator-api/prisma/schema.prisma
+```
+
+### 6. Start the Server
 
 ```bash
 # Development (with watch mode)
-npm run start:dev
+npm run start:dev --workspace evaluator-api
 
 # Production
-npm run build
-npm run start:prod
+npm run build --workspace evaluator-api
+npm run start:prod --workspace evaluator-api
 ```
 
-The API runs on `http://localhost:3000` by default.
+The API runs on `http://localhost:3000` by default with the `/api` global prefix.
+Swagger UI is available at `http://localhost:3000/docs`.
+On startup, the application checks for the configured S3 bucket and creates it automatically when missing.
 
 ## API Documentation
 
@@ -98,27 +128,26 @@ test/                    # E2E tests
 
 | Command | Description |
 |---------|-------------|
-| `npm run start:dev` | Start dev server with hot reload |
-| `npm run build` | Build for production |
-| `npm run start:prod` | Run production build |
-| `npm run lint` | Run ESLint with auto-fix |
-| `npm run format` | Format with Prettier |
-| `npm run test` | Run unit tests |
-| `npm run test:watch` | Run tests in watch mode |
-| `npm run test:cov` | Run tests with coverage |
-| `npm run test:e2e` | Run end-to-end tests |
+| `npm run start:dev --workspace evaluator-api` | Start dev server with hot reload |
+| `npm run build --workspace evaluator-api` | Build for production |
+| `npm run start:prod --workspace evaluator-api` | Run production build |
+| `npm run lint --workspace evaluator-api` | Run ESLint with auto-fix |
+| `npm run test --workspace evaluator-api` | Run unit tests |
+| `npm run test:watch --workspace evaluator-api` | Run tests in watch mode |
+| `npm run test:cov --workspace evaluator-api` | Run tests with coverage |
+| `npm run test:e2e --workspace evaluator-api` | Run end-to-end tests |
 
 ### Running Single Tests
 
 ```bash
 # By file pattern
-npm run test -- --testPathPattern="teams.controller"
+npm run test --workspace evaluator-api -- --testPathPattern="teams.controller"
 
 # By test name
-npm run test -- --testNamePattern="should create a team"
+npm run test --workspace evaluator-api -- --testNamePattern="should create a team"
 
 # Single e2e test
-npm run test:e2e -- --testPathPattern="app"
+npm run test:e2e --workspace evaluator-api -- --testPathPattern="app"
 ```
 
 ## API Endpoints
@@ -175,21 +204,21 @@ performance_threshold_ms: 100
 
 ```bash
 # Generate Prisma client after schema changes
-npx prisma generate
+npx prisma generate --schema evaluator-api/prisma/schema.prisma
 
 # Create and apply migration
-npx prisma migrate dev --name description
+npx prisma migrate dev --schema evaluator-api/prisma/schema.prisma --name description
 
 # Reset database (warning: deletes all data)
-npx prisma migrate reset
+npx prisma migrate reset --schema evaluator-api/prisma/schema.prisma
 
 # Open Prisma Studio (database GUI)
-npx prisma studio
+npx prisma studio --schema evaluator-api/prisma/schema.prisma
 ```
 
 ## Development with Docker
 
-From the project root, start the infrastructure:
+From the repository root, start the infrastructure:
 
 ```bash
 docker-compose up -d

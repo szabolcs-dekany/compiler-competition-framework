@@ -16,20 +16,51 @@ Frontend application for the Programming Language Evaluation Framework - a compe
 ## Prerequisites
 
 - Node.js 20+
+- npm 10+
+- Repository dependencies installed from the monorepo root
+- Shared package built before starting the UI
 - Backend API running on `http://localhost:3000`
 
 ## Getting Started
 
 ### 1. Install Dependencies
 
+From the repository root:
+
 ```bash
 npm install
 ```
 
-### 2. Start Development Server
+### 2. Build Shared Types
+
+The UI imports `@evaluator/shared`, so build it before starting the dev server:
 
 ```bash
-npm run dev
+npm run build --workspace shared
+```
+
+If you are editing shared types during development, run watch mode in another terminal instead:
+
+```bash
+npm run dev --workspace shared
+```
+
+### 3. Start the Backend
+
+The Vite dev server proxies `/api` requests to `http://localhost:3000`, so start the backend first:
+
+```bash
+docker-compose up -d
+cp evaluator-api/.env.example evaluator-api/.env
+npx prisma generate --schema evaluator-api/prisma/schema.prisma
+npx prisma migrate dev --schema evaluator-api/prisma/schema.prisma
+npm run start:dev --workspace evaluator-api
+```
+
+### 4. Start Development Server
+
+```bash
+npm run dev --workspace evaluator-ui
 ```
 
 The app runs on `http://localhost:5173` by default.
@@ -70,10 +101,10 @@ src/
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start dev server (port 5173) |
-| `npm run build` | Build for production |
-| `npm run lint` | Run ESLint |
-| `npm run preview` | Preview production build |
+| `npm run dev --workspace evaluator-ui` | Start dev server (port 5173) |
+| `npm run build --workspace evaluator-ui` | Build for production |
+| `npm run lint --workspace evaluator-ui` | Run ESLint |
+| `npm run preview --workspace evaluator-ui` | Preview production build |
 
 ## Routes
 
